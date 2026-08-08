@@ -6,6 +6,22 @@
 
 ---
 
+## 📦 下载（Release）
+
+**不想折腾源码？直接到 [GitHub Releases](https://github.com/rison114514/grad-research-workbench/releases/latest) 下载安装包**，解压即用，无需配置环境。
+
+| 平台 | 下载 | 说明 |
+|---|---|---|
+| 🍎 macOS（Apple Silicon） | `科研工作台-v1.5.0-mac-arm64.dmg` | 打开后拖入「应用程序」即可 |
+| 🍎 macOS（Apple Silicon） | `科研工作台-v1.5.0-mac-arm64.zip` | 解压后直接运行 `.app` |
+| 🪟 Windows x64 | `科研工作台-v1.5.0-win32-x64.zip` | 解压后运行 `科研工作台.exe` |
+
+> ⚠️ **macOS**：当前为 ad-hoc 签名（无 Apple 官方信任），首次打开若提示「未验证的开发者」，请 **右键 → 打开** → 再点「打开」。
+> ⚠️ **Windows**：尚未做 Authenticode 代码签名，SmartScreen 会提示「未知发布者」，点「更多信息」→「仍要运行」即可。
+> 💡 新版发布会在 [Releases 页](https://github.com/rison114514/grad-research-workbench/releases) 推送，建议 Star 仓库跟进更新。
+
+---
+
 ## 快速开始
 
 ```bash
