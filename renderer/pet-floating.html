@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'">
+  <title>塞西 · 悬浮球</title>
+  <link rel="stylesheet" href="css/pet-floating.css">
+</head>
+<body>
+  <!-- 悬浮球态（系统级悬浮，可拖动） -->
+  <div id="petBall" class="pet-ball" title="与塞西聊天（拖拽移动 · 双击回到工作台）">
+    <div class="pet-orbit pet-orbit-1" aria-hidden="true"></div>
+    <div class="pet-orbit pet-orbit-2" aria-hidden="true"></div>
+    <div class="pet-orbit pet-orbit-3" aria-hidden="true"></div>
+    <div class="pet-ball-inner">
+      <img class="pet-ball-avatar" id="petBallAvatar" src="assets/pet/xaihi-half.png" alt="塞西" draggable="false">
+    </div>
+    <div class="pet-ball-hit" id="petBallHit" title="点击与塞西聊天"></div>
+    <div class="pet-ball-glow" aria-hidden="true"></div>
+    <div class="pet-ball-dot" aria-hidden="true"></div>
+  </div>
+
+  <!-- 聊天态（点击悬浮球展开，右下角锚定） -->
+  <div id="petChat" class="pet-chat hidden">
+    <div class="pet-chat-head">
+      <span class="pet-chat-avatar"><img id="petChatAvatar" src="assets/pet/xaihi-half.png" alt=""></span>
+      <span class="pet-chat-name">塞西 · 助手</span>
+      <span class="pet-chat-status">源石网络已就绪</span>
+      <button class="pet-chat-clear" id="petChatClear" title="清空历史">清</button>
+      <button class="pet-chat-min" id="petChatMin" title="收起为悬浮球">—</button>
+    </div>
+    <div class="pet-chat-body chat-body" id="petChatBody">
+      <div class="pet-chat-welcome">管理员，我是塞西。源石网络已就绪——<br>例如：「帮我生成今天的日报」「把跑步标记为完成」</div>
+    </div>
+    <div class="pet-chat-input">
+      <input class="pet-input" id="petInput" placeholder="与塞西对话…（Enter 发送）">
+      <button class="pet-send" id="petSend" title="发送">➤</button>
+    </div>
+  </div>
+
+  <!-- 依赖：App 基础 + Agent 链路（与主界面同源，能力完全一致） -->
+  <script src="js/app.js"></script>
+  <script src="js/assistant-actions.js"></script>
+  <script src="js/agent/tool-registry.js"></script>
+  <script src="js/assistant.js"></script>
+  <script src="js/pet-floating.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# dependencies & build output
+node_modules/
+dist/
+build/ico-tmp/
+*.log
+
+# macOS / editor
+.DS_Store
+**/.DS_Store
+.vscode/
+.idea/
+
+# local state
+.workbuddy/

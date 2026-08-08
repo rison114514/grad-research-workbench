@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; script-src 'self'; connect-src 'self' https://api.github.com https://api.zotero.org">
+  <title>科研工作台 · Graduate Research Workbench</title>
+  <link rel="stylesheet" href="css/theme.css">
+</head>
+<body>
+  <div class="boot-sequence" id="bootSequence" role="status" aria-label="科研工作台正在加载">
+    <div class="boot-material" aria-hidden="true"></div>
+    <div class="boot-contours" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="boot-index" aria-hidden="true">WB / STARTUP PROCEDURE<br>LOCAL RESEARCH OPERATIONS</div>
+    <div class="boot-loader">
+      <div class="boot-loader-track"><i id="bootLoaderFill"></i></div>
+      <div class="boot-loader-value" id="bootLoaderValue"><b>000</b><span>%</span></div>
+    </div>
+    <div class="boot-identity">
+      <div class="boot-project-logo">
+        <img src="assets/brand/research-workbench-logo-v1.png" alt="科研工作台">
+        <span>RESEARCH WORKBENCH / LOCAL CORE</span>
+      </div>
+      <div class="boot-logo-divider"><i></i><span>×</span><i></i></div>
+      <div class="boot-endfield-logo">
+        <img src="assets/official/blurred_logo.eccbe4f3.png" alt="终末地">
+        <div><strong>终末地</strong><span>ARKNIGHTS: ENDFIELD</span></div>
+      </div>
+    </div>
+    <div class="boot-status-copy" id="bootStatusCopy"><span>INITIALIZING</span><b>系统资源载入中</b></div>
+    <div class="boot-yellow-wipe" id="bootYellowWipe" aria-hidden="true"></div>
+  </div>
+  <div class="app">
+    <!-- ============ 侧边导航 ============ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <img class="brand-mark" src="assets/brand/research-workbench-logo-cropped-v1.png" alt="科研工作台">
+        <span class="brand-code" aria-hidden="true">RW / 01</span>
+        <button class="sidebar-toggle" id="sidebarToggle" aria-label="收起侧边栏" title="展开 / 收起侧边栏"><span></span></button>
+      </div>
+      <nav class="nav" id="nav">
+        <a class="nav-item active" data-page="tasks" href="javascript:void(0)"><span class="nav-ico">01</span><span>待办事项</span><small>TASKS</small></a>
+        <a class="nav-item" data-page="board" href="javascript:void(0)"><span class="nav-ico">02</span><span>进度看板</span><small>BOARD</small></a>
+        <a class="nav-item" data-page="literature" href="javascript:void(0)"><span class="nav-ico">03</span><span>文献中心</span><small>ARCHIVE</small></a>
+        <a class="nav-item" data-page="projects" href="javascript:void(0)"><span class="nav-ico">04</span><span>项目管理</span><small>PROJECT</small></a>
+        <a class="nav-item" data-page="inspirations" href="javascript:void(0)"><span class="nav-ico">05</span><span>创作灵感</span><small>IDEAS</small></a>
+        <a class="nav-item" data-page="reports" href="javascript:void(0)"><span class="nav-ico">06</span><span>日报 / 周报</span><small>REPORT</small></a>
+        <a class="nav-item" data-page="github" href="javascript:void(0)"><span class="nav-ico">07</span><span>GitHub 热点</span><small>SIGNAL</small></a>
+        <a class="nav-item" data-page="time" href="javascript:void(0)"><span class="nav-ico">08</span><span>时间规划</span><small>TIMER</small></a>
+        <a class="nav-item" data-page="dailyPlan" href="javascript:void(0)"><span class="nav-ico">09</span><span>每日计划</span><small>SCHEDULE</small></a>
+        <a class="nav-item" data-page="fitness" href="javascript:void(0)"><span class="nav-ico">10</span><span>运动健身</span><small>FITNESS</small></a>
+        <a class="nav-item" data-page="settings" href="javascript:void(0)"><span class="nav-ico">11</span><span>设置</span><small>SYSTEM</small></a>
+      </nav>
+      <div class="sidebar-foot">
+        <section class="agent-task-card idle" id="agentTaskCard" aria-live="polite" role="button" tabindex="0" aria-label="打开任务中心">
+          <div class="agent-task-head"><span>AGENT QUEUE</span><b id="agentTaskCount">0</b></div>
+          <strong id="agentTaskTitle">后台任务待命</strong>
+          <small id="agentTaskDetail">摘要、扫描与同步进度会显示在这里</small>
+          <div class="agent-task-progress"><i id="agentTaskProgress"></i></div>
+        </section>
+        <button class="assistant-square" id="assistantToggle" aria-label="打开智能助理">
+          <span class="assistant-square-grid" aria-hidden="true"></span>
+          <span class="assistant-square-orbit" aria-hidden="true"></span>
+          <img class="assistant-square-avatar" src="assets/ui/2_13-20260805_121014555.png" alt="">
+          <span class="assistant-square-copy"><strong>智能助理</strong><small>AI WORKMATE</small></span>
+          <span class="ai-status" id="aiStatusDot" title="AI 状态"></span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ============ 主内容区 ============ -->
+    <main class="main">
+      <div class="system-bar" aria-hidden="true">
+        <span class="system-id">WB / 08.05</span>
+        <img class="official-module-banner" src="assets/official/banner.7b4f80c9.jpg" alt="">
+        <span class="system-track"><i></i></span>
+        <span>LOCAL CORE</span>
+        <span class="system-state">SYSTEM ONLINE</span>
+      </div>
+      <!-- 待办事项 -->
+      <section class="page active" id="page-tasks">
+        <header class="page-head">
+          <div>
+            <h1>待办事项</h1>
+            <p class="page-sub" id="tasksDate"></p>
+          </div>
+          <div class="head-actions">
+            <input class="input ai-add-input" id="naturalTaskInput" placeholder="用自然语言快速添加任务，如：明天下午3点 完成实验设计（高优先级）">
+            <button class="btn btn-primary" id="naturalAddBtn">AI 添加</button>
+            <button class="btn" id="openTaskModal">＋ 新建任务</button>
+          </div>
+        </header>
+        <div class="stat-strip" id="taskStatStrip"></div>
+        <div class="filter-bar">
+          <div class="seg" id="taskFilter">
+            <button class="seg-btn active" data-f="all">全部</button>
+            <button class="seg-btn" data-f="today">今天</button>
+            <button class="seg-btn" data-f="overdue">已逾期</button>
+            <button class="seg-btn" data-f="high">高优先级</button>
+            <button class="seg-btn" data-f="done">已完成</button>
+          </div>
+        </div>
+        <div class="task-list" id="taskList"></div>
+        <aside class="task-side-rail" aria-hidden="true">
+          <span class="task-side-title">TODAY PLAN</span>
+          <span class="task-side-strip"></span>
+          <small>DAILY WORKFLOW<br>RESEARCH OPERATIONS</small>
+        </aside>
+      </section>
+
+      <!-- 进度看板 -->
+      <section class="page" id="page-board">
+        <header class="page-head">
+          <div>
+            <h1>工作进度看板</h1>
+            <p class="page-sub">任务完成率 · 时间分配 · 趋势统计</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn" id="boardRefresh">⟳ 刷新统计</button>
+          </div>
+        </header>
+        <div class="board-stats">
+          <div class="chart-card" id="chartDoneRateCard">
+            <div class="chart-title">任务完成率</div>
+            <div class="chart" id="chartDoneRate"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">任务优先级分布</div>
+            <div class="chart" id="chartPriority"></div>
+          </div>
+          <div class="chart-card wide">
+            <div class="chart-title">近 7 天动态</div>
+            <div class="chart" id="chartTrend"></div>
+          </div>
+        </div>
+        <div class="kanban" id="kanban">
+          <div class="kanban-col" data-status="todo">
+            <div class="kanban-head todo">待办 <span class="count" id="cntTodo">0</span></div>
+            <div class="kanban-body" id="kanTodo"></div>
+          </div>
+          <div class="kanban-col" data-status="doing">
+            <div class="kanban-head doing">进行中 <span class="count" id="cntDoing">0</span></div>
+            <div class="kanban-body" id="kanDoing"></div>
+          </div>
+          <div class="kanban-col" data-status="done">
+            <div class="kanban-head done">已完成 <span class="count" id="cntDone">0</span></div>
+            <div class="kanban-body" id="kanDone"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 文献中心 -->
+      <section class="page" id="page-literature">
+        <header class="page-head">
+          <div>
+            <h1>文献中心</h1>
+            <p class="page-sub">每日文献总结 · 结构化摘要 · 笔记归档 · 分类图谱</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn" id="litGraphBtn">关联图谱</button>
+            <button class="btn" id="importPdf">导入 PDF</button>
+            <button class="btn btn-primary" id="openLitModal">＋ 添加文献</button>
+          </div>
+        </header>
+        <!-- 三栏：分类树 | 文献列表 | 详情（可拖拽/可折叠） -->
+        <div class="split lit-split3" id="litSplit3">
+          <div class="lit-col lit-col-tree" data-col="tree">
+            <div class="col-tree-head">
+              <span>分类</span>
+              <span class="lit-col-ops">
+                <button class="btn btn-xs" id="litAddCollection" title="新建分类">＋ 新建</button>
+                <button class="lit-collapse-btn" data-col="tree" title="折叠分类栏">◀</button>
+              </span>
+            </div>
+            <div class="tree" id="litColTree"></div>
+          </div>
+          <div class="lit-divider" data-divider="tree" title="拖动调整宽度 · 双击复位"></div>
+          <div class="lit-col split-left" data-col="list">
+            <div class="lit-list-head">
+              <span class="lit-col-title">文献列表</span>
+              <button class="lit-collapse-btn" data-col="list" title="折叠列表栏">◀</button>
+            </div>
+            <div class="row lit-bulk-bar">
+              <label class="check"><input type="checkbox" id="litSelectAll"> 全选</label>
+              <span class="muted" id="litSelCount">已选 0</span>
+              <span style="flex:1"></span>
+              <button class="btn btn-sm" id="litBatchAssign" disabled>移至分类</button>
+              <button class="btn btn-sm danger" id="litBatchDelete" disabled>批量删除</button>
+            </div>
+            <input class="input" id="litSearch" placeholder="搜索标题 / 作者 / 标签…">
+            <div class="lit-list" id="litList"></div>
+          </div>
+          <div class="lit-divider" data-divider="detail" title="拖动调整宽度 · 双击复位"></div>
+          <div class="lit-col split-right" data-col="detail">
+            <div class="lit-detail-head">
+              <span class="lit-col-title">详情</span>
+              <button class="lit-collapse-btn" data-col="detail" title="折叠详情栏">◀</button>
+            </div>
+            <div id="litDetail">
+              <div class="empty-tip">← 从左侧选择一篇文献查看摘要笔记</div>
+            </div>
+          </div>
+        </div>
+        <!-- 关联图谱视图（默认隐藏） -->
+        <div class="lit-graph-view hidden" id="litGraphView">
+          <div class="lit-graph-head">
+            <div class="chart-title">文献关联图谱</div>
+            <div class="row">
+              <select class="input gh-since" id="litGraphScope">
+                <option value="all">全部文献</option>
+                <option value="category">当前分类</option>
+                <option value="selected">勾选文献</option>
+              </select>
+              <button class="btn btn-primary" id="litGenerateRelations">AI 生成关系</button>
+              <button class="btn" id="litGraphBack">← 返回列表</button>
+            </div>
+          </div>
+          <div class="lit-graph-focus" id="litGraphFocus"></div>
+          <div class="lit-graph-wrap">
+            <div class="lit-graph-canvas" id="litGraphCanvas"><div class="empty-tip">点击「AI 生成关系」分析文献关联，或先返回列表勾选文献</div></div>
+            <div class="lit-graph-side" id="litGraphSide"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 项目管理 -->
+      <section class="page" id="page-projects">
+        <header class="page-head">
+          <div>
+            <h1>项目管理</h1>
+            <p class="page-sub">打开本地项目文件夹 · 可视化项目结构关系图谱</p>
+          </div>
+          <div class="head-actions">
+            <button class="btn btn-primary" id="addProjectBtn">＋ 添加项目</button>
+          </div>
+        </header>
+        <div class="project-cards" id="projectCards"></div>
+        <div class="project-detail hidden" id="projectDetail">
+          <div class="detail-head">
+            <h2 id="pdName"></h2>
+            <span class="muted" id="pdPath"></span>
+            <div class="detail-actions">
+              <button class="btn" id="pdReScan">⟳ 重新扫描</button>
+              <button class="btn btn-danger" id="pdDelete">删除项目</button>
+            </div>
+          </div>
+          <div class="project-grid">
+            <div class="graph-panel">
+              <div class="chart-title">项目结构关系图谱</div>
+              <div class="chart tall" id="projectGraph"></div>
+            </div>
+            <div class="tree-panel">
+              <div class="chart-title">目录结构</div>
+              <div class="tree" id="projectTree"></div>
+              <div class="file-preview" id="filePreview"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 创作灵感 -->
+      <section class="page" id="page-inspirations">
+        <header class="page-head">
+          <div>
+            <h1>创作灵感</h1>
+            <p class="page-sub">快速捕捉想法 · 标签归档 · 灵感回看</p>
+          </div>
+          <div class="head-actions inspiration-head-stat">
+            <span id="inspirationCount">0</span>
+            <small>IDEAS CAPTURED</small>
+          </div>
+        </header>
+        <div class="inspiration-workspace">
+          <aside class="inspiration-compose">
+            <div class="chart-title">记录新灵感</div>
+            <label class="field-label" for="ideaTitle">标题</label>
+            <input class="input" id="ideaTitle" maxlength="80" placeholder="给这个想法一个短标题">
+            <label class="field-label" for="ideaContent">想法内容</label>
+            <textarea class="input inspiration-textarea" id="ideaContent" maxlength="2000" placeholder="随手记下画面、观点、选题、实验设想……"></textarea>
+            <div class="inspiration-fields">
+              <div>
+                <label class="field-label" for="ideaTags">标签</label>
+                <input class="input" id="ideaTags" placeholder="AI, 写作, 视频">
+              </div>
+              <div>
+                <label class="field-label" for="ideaMood">类型</label>
+                <select class="input" id="ideaMood">
+                  <option value="spark">灵光一现</option>
+                  <option value="topic">选题方向</option>
+                  <option value="visual">视觉画面</option>
+                  <option value="research">研究设想</option>
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-primary block" id="ideaSave">保存灵感</button>
+            <p class="hint">浏览器预览保存在当前浏览器；桌面版写入本机数据目录。</p>
+          </aside>
+          <section class="inspiration-feed">
+            <div class="inspiration-toolbar">
+              <div class="chart-title">灵感档案 / IDEA ARCHIVE</div>
+              <input class="input" id="ideaSearch" placeholder="搜索标题、内容或标签">
+            </div>
+            <div class="inspiration-grid" id="inspirationGrid"></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- 日报 / 周报 -->
+      <section class="page" id="page-reports">
+        <header class="page-head">
+          <div>
+            <h1>日报 / 周报</h1>
+            <p class="page-sub">自动汇总任务与记录，一键生成 Markdown 报告</p>
+          </div>
+        </header>
+        <div class="report-controls">
+          <div class="seg" id="reportType">
+            <button class="seg-btn active" data-t="daily">日报</button>
+            <button class="seg-btn" data-t="weekly">周报</button>
+          </div>
+          <input type="date" class="input" id="reportDate">
+          <label class="check"><input type="checkbox" id="reportPolish"> AI 润色</label>
+          <button class="btn btn-primary" id="reportGenerate">生成报告</button>
+          <button class="btn" id="reportExport">导出 Markdown</button>
+          <button class="btn" id="reportExportSelected" title="导出选中的历史报告">导出选中（<span id="reportSelCount">0</span>）</button>
+        </div>
+        <div class="report-main">
+          <div class="report-preview markdown" id="reportPreview"></div>
+          <div class="report-history">
+            <div class="chart-title report-history-head">
+              <span>历史报告</span>
+              <label class="check"><input type="checkbox" id="reportSelectAll"> 全选</label>
+            </div>
+            <div class="report-list" id="reportList"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- GitHub 热点 -->
+      <section class="page" id="page-github">
+        <header class="page-head">
+          <div>
+            <h1>GitHub 热点追踪</h1>
+            <p class="page-sub">订阅关注领域与仓库 · 聚合热门趋势与更新动态</p>
+          </div>
+        </header>
+        <div class="gh-grid">
+          <!-- 左：订阅管理（添加入口置顶，列表+详情） -->
+          <div class="gh-panel gh-subs-panel">
+            <div class="chart-title">订阅管理 <small>关键词 / 仓库 · 上方添加</small></div>
+            <div class="gh-add-row gh-add-row-top">
+              <input class="input" id="ghKeywordInput" placeholder="订阅关键词，如 deep learning / robotics">
+              <button class="btn" id="ghKeywordAdd">＋ 关键词</button>
+              <input class="input" id="ghRepoInput" placeholder="订阅仓库（链接或 owner/repo）">
+              <button class="btn" id="ghRepoAdd">＋ 仓库</button>
+            </div>
+            <div class="split gh-split">
+              <div class="split-left">
+                <div class="gh-tabs">
+                  <button class="gh-tab active" data-tab="all">全部</button>
+                  <button class="gh-tab" data-tab="keyword">关键词</button>
+                  <button class="gh-tab" data-tab="repo">仓库</button>
+                </div>
+                <input class="input gh-search" id="ghSubSearch" placeholder="搜索名称 / 关键词 / 语言 / 描述…">
+                <div class="lit-list" id="ghSubList"></div>
+              </div>
+              <div class="split-right" id="ghSubDetail">
+                <div class="gh-detail-empty">← 点击左侧订阅查看详情</div>
+              </div>
+            </div>
+          </div>
+          <!-- 右：官网热榜 + 仓库动态 -->
+          <div class="gh-panel">
+            <div class="chart-title">GitHub 官网热榜 <small>github.com/trending</small></div>
+            <div class="row">
+              <input class="input gh-lang-input" id="ghTrendLang" list="ghLangList" placeholder="语言/领域（留空 = 全领域）">
+              <datalist id="ghLangList"></datalist>
+              <select class="input gh-since" id="ghTrendSince">
+                <option value="daily">每日</option>
+                <option value="weekly" selected>每周</option>
+                <option value="monthly">每月</option>
+              </select>
+              <button class="btn btn-primary" id="ghFetchTrending">⟳ 抓取</button>
+            </div>
+            <div class="gh-source" id="ghTrendSource"></div>
+            <div class="gh-weekly-summary" id="ghWeeklySummary"></div>
+            <div class="repo-list" id="ghTrendList"></div>
+            <div class="chart-title" style="margin-top:16px">订阅仓库动态</div>
+            <div class="row">
+              <button class="btn btn-primary block" id="ghRefreshReleases">⟳ 拉取全部更新动态</button>
+            </div>
+            <div class="release-list" id="ghReleaseList"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="page" id="page-settings">
+        <header class="page-head">
+          <div>
+            <h1>设置</h1>
+            <p class="page-sub">AI 模型配置 · GitHub Token · 本地数据管理</p>
+          </div>
+        </header>
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="chart-title">AI 服务配置</div>
+            <label class="field-label">模型服务商（预设模板）</label>
+            <select class="input" id="setProvider"></select>
+            <label class="field-label">Base URL</label>
+            <input class="input" id="setBaseUrl" placeholder="https://api.deepseek.com/v1">
+            <label class="field-label">模型名称</label>
+            <input class="input" id="setModel" placeholder="deepseek-chat">
+            <label class="field-label">API Key</label>
+            <input class="input" type="password" id="setApiKey" placeholder="sk-...">
+            <div class="row">
+              <button class="btn btn-primary" id="setSave">保存配置</button>
+              <button class="btn" id="setTest">测试连接</button>
+              <span class="test-result" id="setTestResult"></span>
+            </div>
+            <div class="hint">支持 OpenAI 兼容接口：DeepSeek / OpenAI / 通义千问 / 智谱 / Kimi / Ollama 本地。未配置时自动使用本地模板。</div>
+          </div>
+          <div class="settings-card">
+            <div class="chart-title">GitHub 配置</div>
+            <label class="field-label">Personal Access Token（可选，提升限流至 5000 次/小时）</label>
+            <input class="input" type="password" id="setGhToken" placeholder="ghp_...">
+            <button class="btn" id="setGhSave">保存</button>
+            <div class="hint">不配置也可匿名使用（限 60 次/小时）。获取：GitHub → Settings → Developer settings → Tokens。</div>
+          </div>
+          <div class="settings-card zotero-settings-card">
+            <div class="chart-title">Zotero 只读同步</div>
+            <div class="row2">
+              <div>
+                <label class="field-label">文献库类型</label>
+                <select class="input" id="setZoteroType">
+                  <option value="users">个人文献库</option>
+                  <option value="groups">群组文献库</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">Library ID</label>
+                <input class="input" id="setZoteroLibraryId" placeholder="数字 ID">
+              </div>
+            </div>
+            <label class="field-label">API Key（仅用于读取）</label>
+            <input class="input" type="password" id="setZoteroApiKey" placeholder="Zotero API Key">
+            <label class="field-label">Collection Key（可选）</label>
+            <input class="input" id="setZoteroCollection" placeholder="留空则同步整个文献库">
+            <div class="row">
+              <button class="btn" id="setZoteroTest">测试只读连接</button>
+              <button class="btn btn-primary" id="setZoteroSync">同步到文献中心</button>
+              <span class="test-result" id="setZoteroResult"></span>
+            </div>
+            <div class="hint">只读取条目、分类和标签；不会修改或删除 Zotero 中的任何内容。Library ID 可在 Zotero API Keys 页面查看。</div>
+          </div>
+          <div class="settings-card">
+            <div class="chart-title">文献界面</div>
+            <label class="field-label">文献字号</label>
+            <div class="seg" id="setLitFont">
+              <button class="seg-btn" data-f="small">小</button>
+              <button class="seg-btn active" data-f="medium">中</button>
+              <button class="seg-btn" data-f="large">大</button>
+            </div>
+            <div class="hint">文献列表、详情与分类树的字号三档切换；三栏宽度可在文献页拖动分隔条调整、点击栏头 ◀ 折叠。</div>
+          </div>
+          <div class="settings-card">
+            <div class="chart-title">桌面宠物</div>
+            <label class="check"><input type="checkbox" id="setPetEnabled"> 启用桌面宠物（塞西）</label>
+            <div class="row" style="margin-top:10px">
+              <label class="field-label" style="margin:0">头像</label>
+              <select class="input" id="setPetAvatar" style="flex:1">
+                <option value="xaihi-half">塞西 · 半身像</option>
+                <option value="xaihi-full">塞西 · 全身像</option>
+                <option value="custom">自定义图片…</option>
+              </select>
+              <button class="btn" id="setPetPick">选择图片</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <label class="field-label" style="margin:0">位置</label>
+              <select class="input" id="setPetPosition" style="flex:1">
+                <option value="bottom-right">右下角</option>
+                <option value="bottom-left">左下角</option>
+              </select>
+            </div>
+            <div class="hint">点击宠物可展开聊天框与 AI 助手对话；自定义头像需选择本地图片（PNG/JPG，限 5MB）。</div>
+          </div>
+          <div class="settings-card">
+            <div class="chart-title">本地数据</div>
+            <label class="field-label">数据存储目录（全部数据保存在本机）</label>
+            <div class="code-line" id="setDataDir"></div>
+            <div class="row">
+              <button class="btn" id="setOpenDir">打开目录</button>
+              <button class="btn" id="setBackup">立即备份</button>
+            </div>
+            <div class="hint">数据以 JSON 文件本地存储，可随时备份或迁移。</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 时间规划 -->
+      <section class="page" id="page-time">
+        <header class="page-head">
+          <div>
+            <h1>时间规划</h1>
+            <p class="page-sub" id="timeDate"></p>
+          </div>
+          <div class="head-actions">
+            <button class="btn" id="timeLogBtn">＋ 记录时间块</button>
+          </div>
+        </header>
+        <div class="stat-strip" id="timeStatStrip"></div>
+        <div class="time-grid">
+          <div class="chart-card pomo-card">
+            <div class="chart-title">番茄钟</div>
+            <div class="pomo-layout">
+              <div class="pomo-ring-wrap">
+                <svg class="pomo-ring" id="pomoRing" viewBox="0 0 220 220" aria-hidden="true">
+                  <circle class="pomo-ring-track" cx="110" cy="110" r="96"></circle>
+                  <circle class="pomo-ring-progress" id="pomoRingProgress" cx="110" cy="110" r="96"></circle>
+                </svg>
+                <div class="pomo-ring-center">
+                  <strong id="pomoTime">25:00</strong>
+                  <span id="pomoStatus">READY / 待开始</span>
+                </div>
+              </div>
+              <div class="pomo-controls">
+                <label class="field-label">专注时长（分钟）</label>
+                <input class="input" type="number" id="pomoFocusMin" min="1" max="120" value="25">
+                <label class="field-label">休息时长（分钟）</label>
+                <input class="input" type="number" id="pomoBreakMin" min="1" max="60" value="5">
+                <label class="field-label">分类</label>
+                <div class="seg" id="pomoCategory">
+                  <button class="seg-btn active" data-c="focus">专注</button>
+                  <button class="seg-btn" data-c="work">工作</button>
+                  <button class="seg-btn" data-c="study">学习</button>
+                  <button class="seg-btn" data-c="reading">阅读</button>
+                  <button class="seg-btn" data-c="writing">写作</button>
+                </div>
+                <div class="pomo-actions">
+                  <button class="btn btn-primary" id="pomoStart">开始</button>
+                  <button class="btn" id="pomoPause" disabled>暂停</button>
+                  <button class="btn" id="pomoReset" disabled>重置</button>
+                </div>
+                <div class="pomo-meta">今日完成 <b id="pomoDoneCount">0</b> 个番茄 · 专注 <b id="pomoDoneMin">0</b> 分钟</div>
+              </div>
+            </div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">每日时间分布</div>
+            <div class="chart" id="distDaily"></div>
+          </div>
+          <div class="chart-card wide">
+            <div class="chart-title">每周时间分布</div>
+            <div class="chart" id="distWeekly"></div>
+          </div>
+        </div>
+        <div class="chart-card time-log-card">
+          <div class="chart-title">手动时间块记录</div>
+          <div class="row time-log-form" id="timeLogForm">
+            <select class="input" id="timeLogCategory">
+              <option value="work">工作</option>
+              <option value="study">学习</option>
+              <option value="life">生活</option>
+              <option value="rest">休息</option>
+              <option value="sport">运动</option>
+            </select>
+            <input class="input" type="number" id="timeLogMinutes" min="1" max="1440" placeholder="时长（分钟）">
+            <input class="input" id="timeLogNote" placeholder="备注（可选）">
+            <button class="btn btn-primary" id="timeLogSave">记录</button>
+          </div>
+          <div class="time-log-list" id="timeLogList"></div>
+        </div>
+      </section>
+
+      <!-- 每日计划 -->
+      <section class="page" id="page-dailyPlan">
+        <header class="page-head">
+          <div>
+            <h1>每日计划</h1>
+            <p class="page-sub">按日 / 按周规划日程 · 可一键转为任务</p>
+          </div>
+          <div class="head-actions">
+            <div class="seg" id="planMode">
+              <button class="seg-btn active" data-m="day">按日</button>
+              <button class="seg-btn" data-m="week">按周</button>
+            </div>
+            <input type="date" class="input" id="planDate">
+            <button class="btn btn-primary" id="planAddBtn">＋ 新增计划</button>
+          </div>
+        </header>
+        <div class="plan-day-view" id="planDayView">
+          <div class="plan-timeline" id="planTimeline"></div>
+        </div>
+        <div class="plan-week-view hidden" id="planWeekView">
+          <div class="plan-week-nav">
+            <button class="btn" id="planWeekPrev">← 上周</button>
+            <span id="planWeekLabel"></span>
+            <button class="btn" id="planWeekNext">下周 →</button>
+            <button class="btn" id="planWeekToday">本周</button>
+          </div>
+          <div class="plan-week-grid" id="planWeekGrid"></div>
+        </div>
+      </section>
+
+      <!-- 运动健身 -->
+      <section class="page" id="page-fitness">
+        <header class="page-head">
+          <div>
+            <h1>运动健身</h1>
+            <p class="page-sub" id="fitDate"></p>
+          </div>
+          <div class="head-actions">
+            <button class="btn" id="fitAddPlanBtn">＋ 新增计划</button>
+            <button class="btn btn-primary" id="fitLogBtn">＋ 记录打卡</button>
+          </div>
+        </header>
+        <div class="stat-strip" id="fitStatStrip"></div>
+        <div class="fit-grid">
+          <div class="chart-card">
+            <div class="chart-title">健身计划</div>
+            <div class="fit-plan-list" id="fitPlanList"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">近 7 天打卡记录</div>
+            <div class="fit-recent-list" id="fitRecentList"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Agent 任务中心 -->
+  <div class="drawer-mask hidden" id="agentTaskMask"></div>
+  <aside class="task-center-drawer" id="agentTaskDrawer" aria-label="Agent 任务中心">
+    <div class="task-center-head">
+      <div><span>AGENT OPERATIONS</span><h2>任务中心</h2><p>规划、执行、验证与人工介入记录</p></div>
+      <button class="btn-ghost" id="agentTaskClose">✕</button>
+    </div>
+    <div class="task-center-tools">
+      <div class="seg" id="agentTaskFilter">
+        <button class="seg-btn active" data-state="all">全部</button>
+        <button class="seg-btn" data-state="active">进行中</button>
+        <button class="seg-btn" data-state="needs_input">需处理</button>
+        <button class="seg-btn" data-state="done">已完成</button>
+      </div>
+      <button class="btn" id="agentTaskClear">清理已完成</button>
+    </div>
+    <div class="task-center-body">
+      <div class="task-center-list" id="agentTaskList"></div>
+      <div class="task-center-detail" id="agentTaskDetailPanel"><div class="empty-tip">从左侧选择一项任务查看执行轨迹</div></div>
+    </div>
+  </aside>
+
+  <!-- ============ AI 助手抽屉 ============ -->
+  <div class="drawer-mask hidden" id="assistantMask"></div>
+  <aside class="assistant-drawer" id="assistantDrawer">
+    <div class="drawer-head">
+      <div>
+        <div class="drawer-title">AI / 智能助理</div>
+        <div class="drawer-sub" id="assistantModelLabel"></div>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn-ghost btn-xs" id="assistantNew" title="新建对话">＋</button>
+        <button class="btn-ghost btn-xs" id="assistantSessionsBtn" title="会话列表">☰</button>
+        <button class="btn-ghost btn-xs" id="assistantExport" title="导出对话">⇩</button>
+      </div>
+      <button class="btn-ghost" id="assistantClose">✕</button>
+    </div>
+    <div class="assistant-local-hint">历史仅保存在本机</div>
+    <div class="chat-body" id="chatBody"></div>
+    <div class="chat-quick">
+      <button class="chip" data-q="安排 明天9点到11点 写论文">安排日程</button>
+      <button class="chip" data-q="帮我看看时间安排">今日洞察</button>
+      <button class="chip" data-q="打卡 跑步 30分钟">健身打卡</button>
+      <button class="chip" data-q="记录 学习 2小时">记录时间</button>
+      <button class="chip" data-q="总结我的任务进度">总结进度</button>
+    </div>
+    <div class="chat-input-row">
+      <textarea class="chat-input" id="chatInput" rows="2" placeholder="向 AI 提问，可询问任务、文献、报告等（自动携带上下文）"></textarea>
+      <button class="btn btn-primary" id="chatSend">发送</button>
+    </div>
+  </aside>
+
+  <!-- 会话列表弹窗 -->
+  <div class="modal-mask hidden" id="assistantSessionsModal">
+    <div class="modal">
+      <h3>会话列表</h3>
+      <div class="assistant-session-list" id="assistantSessionList"></div>
+    </div>
+  </div>
+
+  <!-- 任务弹窗 -->
+  <div class="modal-mask hidden" id="taskModal">
+    <div class="modal">
+      <h3 id="taskModalTitle">新建任务</h3>
+      <label class="field-label">任务标题</label>
+      <input class="input" id="tmTitle">
+      <div class="row2">
+        <div>
+          <label class="field-label">优先级</label>
+          <select class="input" id="tmPriority">
+            <option value="high">高</option>
+            <option value="medium" selected>中</option>
+            <option value="low">低</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">截止日期</label>
+          <input type="date" class="input" id="tmDue">
+        </div>
+        <div>
+          <label class="field-label">所属项目</label>
+          <select class="input" id="tmProject"></select>
+        </div>
+      </div>
+      <label class="field-label">备注</label>
+      <textarea class="input" id="tmNote" rows="2"></textarea>
+      <div class="modal-actions">
+        <button class="btn" id="tmCancel">取消</button>
+        <button class="btn btn-primary" id="tmSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 任务拆解预览 -->
+  <div class="modal-mask hidden" id="splitPlanModal">
+    <div class="modal split-plan-modal">
+      <div class="split-plan-kicker">PLAN REVIEW / HUMAN CHECKPOINT</div>
+      <h3>拆解为执行步骤</h3>
+      <div class="split-plan-context">
+        <label class="field-label">目标理解</label>
+        <textarea class="input" id="splitGoal" rows="2"></textarea>
+        <label class="field-label">预期交付物</label>
+        <input class="input" id="splitDeliverable">
+      </div>
+      <div class="split-plan-head"><b>执行步骤</b><button class="btn" id="splitAddStep">＋ 添加步骤</button></div>
+      <div class="split-step-list" id="splitStepList"></div>
+      <div class="split-plan-checks" id="splitPlanChecks"></div>
+      <label class="field-label">确认后如何应用</label>
+      <div class="split-apply-options">
+        <label><input type="radio" name="splitApplyMode" value="children" checked> 创建为独立子任务</label>
+        <label><input type="radio" name="splitApplyMode" value="checklist"> 保存为当前任务检查清单</label>
+        <label><input type="radio" name="splitApplyMode" value="plan"> 只保存计划</label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="splitCancel">取消</button>
+        <button class="btn btn-primary" id="splitConfirm">确认应用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文献弹窗 -->
+  <div class="modal-mask hidden" id="litModal">
+    <div class="modal wide">
+      <h3>添加文献</h3>
+      <div class="row2">
+        <div class="span2">
+          <label class="field-label">标题 *</label>
+          <input class="input" id="lmTitle">
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="field-label">作者</label>
+          <input class="input" id="lmAuthors" placeholder="Zhang, S.; Li, W.">
+        </div>
+        <div>
+          <label class="field-label">期刊 / 会议</label>
+          <input class="input" id="lmVenue">
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="field-label">年份</label>
+          <input class="input" id="lmYear" placeholder="2025">
+        </div>
+        <div>
+          <label class="field-label">DOI / 链接</label>
+          <input class="input" id="lmDoi">
+        </div>
+      </div>
+      <label class="field-label">原文摘要（可选，粘贴后可让 AI 生成结构化笔记）</label>
+      <textarea class="input" id="lmAbstract" rows="4"></textarea>
+      <label class="field-label">标签（逗号分隔）</label>
+      <input class="input" id="lmTags" placeholder="SLAM, 深度学习">
+      <div class="modal-actions">
+        <button class="btn" id="lmAI">AI 生成摘要</button>
+        <button class="btn" id="lmCancel">取消</button>
+        <button class="btn btn-primary" id="lmSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文献分类：新建 / 重命名 -->
+  <div class="modal-mask hidden" id="litColModal">
+    <div class="modal">
+      <h3 id="litColTitle">新建分类</h3>
+      <label class="field-label">分类名称 *</label>
+      <input class="input" id="litColName" placeholder="如：深度学习 / 综述 / 复现实验">
+      <label class="field-label">父分类（可选，留空为顶层）</label>
+      <select class="input" id="litColParent"></select>
+      <div class="modal-actions">
+        <button class="btn" id="litColCancel">取消</button>
+        <button class="btn btn-primary" id="litColSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文献分类关联：多选 checkbox -->
+  <div class="modal-mask hidden" id="litAssignModal">
+    <div class="modal">
+      <h3>文献分类</h3>
+      <p class="muted" style="font-size:12px">可多选，一篇文献可属于多个分类</p>
+      <div class="tree assign-tree" id="litAssignTree"></div>
+      <div class="modal-actions">
+        <button class="btn" id="litAssignCancel">取消</button>
+        <button class="btn btn-primary" id="litAssignSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 每日计划：新增计划项 -->
+  <div class="modal-mask hidden" id="planModal">
+    <div class="modal">
+      <h3>新增计划项</h3>
+      <label class="field-label">标题 *</label>
+      <input class="input" id="planItemTitle">
+      <div class="row2">
+        <div>
+          <label class="field-label">开始</label>
+          <input type="time" class="input" id="planItemStart">
+        </div>
+        <div>
+          <label class="field-label">结束</label>
+          <input type="time" class="input" id="planItemEnd">
+        </div>
+        <div>
+          <label class="field-label">类型</label>
+          <select class="input" id="planItemType">
+            <option value="work">工作</option>
+            <option value="study" selected>学习</option>
+            <option value="meeting">会议</option>
+            <option value="life">生活</option>
+            <option value="rest">休息</option>
+          </select>
+        </div>
+      </div>
+      <label class="field-label">备注</label>
+      <textarea class="input" id="planItemNote" rows="2"></textarea>
+      <div class="modal-actions">
+        <button class="btn" id="planItemCancel">取消</button>
+        <button class="btn btn-primary" id="planItemSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 运动健身：新增计划 -->
+  <div class="modal-mask hidden" id="fitPlanModal">
+    <div class="modal">
+      <h3>新增健身计划</h3>
+      <label class="field-label">计划名称 *</label>
+      <input class="input" id="fitPlanName" placeholder="如：晨跑、力量训练">
+      <div class="row2">
+        <div>
+          <label class="field-label">类型</label>
+          <select class="input" id="fitPlanType">
+            <option value="running">跑步</option>
+            <option value="strength">力量</option>
+            <option value="yoga">瑜伽</option>
+            <option value="ball">球类</option>
+            <option value="other">其他</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">每周目标（次）</label>
+          <input class="input" type="number" id="fitPlanWeekly" min="1" value="3">
+        </div>
+        <div>
+          <label class="field-label">单次时长（分钟）</label>
+          <input class="input" type="number" id="fitPlanDuration" min="1" value="30">
+        </div>
+      </div>
+      <label class="field-label">备注</label>
+      <textarea class="input" id="fitPlanNote" rows="2"></textarea>
+      <div class="modal-actions">
+        <button class="btn" id="fitPlanCancel">取消</button>
+        <button class="btn btn-primary" id="fitPlanSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 运动健身：记录打卡 -->
+  <div class="modal-mask hidden" id="fitLogModal">
+    <div class="modal">
+      <h3>记录打卡</h3>
+      <div class="row2">
+        <div>
+          <label class="field-label">日期</label>
+          <input type="date" class="input" id="fitLogDate">
+        </div>
+        <div>
+          <label class="field-label">关联计划</label>
+          <select class="input" id="fitLogPlan"></select>
+        </div>
+        <div>
+          <label class="field-label">类型</label>
+          <select class="input" id="fitLogType">
+            <option value="running">跑步</option>
+            <option value="strength">力量</option>
+            <option value="yoga">瑜伽</option>
+            <option value="ball">球类</option>
+            <option value="other">其他</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label class="field-label">时长（分钟）*</label>
+          <input class="input" type="number" id="fitLogDuration" min="1">
+        </div>
+        <div class="span2">
+          <label class="field-label">备注</label>
+          <input class="input" id="fitLogNote" placeholder="可选">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="fitLogCancel">取消</button>
+        <button class="btn btn-primary" id="fitLogSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastRoot"></div>
+  <script src="js/browser-api.js"></script>
+  <script src="js/boot-sequence.js"></script>
+  <script src="vendor/echarts.min.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/agent-tasks.js"></script>
+  <script src="js/tasks.js"></script>
+  <script src="js/board.js"></script>
+  <script src="js/literature.js"></script>
+  <script src="js/literature-layout.js"></script>
+  <script src="js/projects.js"></script>
+  <script src="js/inspirations.js"></script>
+  <script src="js/reports.js"></script>
+  <script src="js/github.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/time.js"></script>
+  <script src="js/daily-plan.js"></script>
+  <script src="js/fitness.js"></script>
+  <script src="js/assistant-actions.js"></script>
+  <script src="js/agent/tool-registry.js"></script>
+  <script src="js/assistant.js"></script>
+  <script src="js/pet.js"></script>
+  <script src="js/init.js"></script>
+  <!-- 桌面宠物（设置页开启后显示） -->
+  <button class="pet-fab hidden" id="petFab" title="与塞西聊天" aria-label="桌面宠物"></button>
+  <div class="pet-chat hidden" id="petChat">
+    <div class="pet-chat-head">
+      <span class="pet-chat-name">塞西 · 助手</span>
+      <button class="pet-chat-close" id="petChatClose">✕</button>
+    </div>
+    <div class="pet-chat-body chat-body" id="petChatBody">
+      <div class="pet-chat-welcome">管理员，我是塞西。源石网络已就绪——<br/>例如：「帮我生成今天的日报」「把跑步标记为完成」</div>
+    </div>
+    <div class="pet-chat-input">
+      <input class="input" id="petInput" placeholder="和塞西说点什么…">
+      <button class="btn btn-primary" id="petSend">发送</button>
+    </div>
+  </div>
+</body>
+</html>
