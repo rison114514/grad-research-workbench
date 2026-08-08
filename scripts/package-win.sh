@@ -24,6 +24,8 @@ fi
 
 echo "== [1/4] electron-packager 组装 Windows（v${VERSION}）=="
 rm -rf "dist/科研工作台-win32-x64"
+# 国内网络：默认走 npmmirror 镜像下载 win 版 electron（GitHub 直连常超时），可用 ELECTRON_MIRROR 覆盖
+export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
 ./node_modules/.bin/electron-packager . "$PKG" \
   --platform=win32 --arch=x64 --out=dist --overwrite \
   --icon=build/icon.ico --app-version="$VERSION" \
