@@ -355,6 +355,9 @@ button, .nav-item { -webkit-app-region: no-drag; }
 .nav-item:nth-child(6) .nav-ico { background-image: url("../assets/official/prof-support.532f02bd.jpg"); }
 .nav-item:nth-child(7) .nav-ico { background-image: url("../assets/official/ele-electric.a3874677.jpg"); }
 .nav-item:nth-child(8) .nav-ico { background-image: url("../assets/official/prof-shielder.a3c6ffc9.jpg"); }
+.nav-item:nth-child(9) .nav-ico { background-image: url("../assets/official/prof-assault.2aeeaf48.jpg"); }
+.nav-item:nth-child(10) .nav-ico { background-image: url("../assets/official/ele-fire.97dcd67b.jpg"); }
+.nav-item:nth-child(11) .nav-ico { background-image: url("../assets/official/ele-physic.2c205b7a.jpg"); }
 .nav-item.active .nav-ico, .nav-item.hologram .nav-ico { opacity: 1; filter: grayscale(.15) contrast(1.18); }
 .nav-item small { font: 7px/1 var(--mono); letter-spacing: .11em; opacity: .55; }
 .sidebar-foot {

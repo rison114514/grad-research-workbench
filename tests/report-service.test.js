@@ -58,7 +58,7 @@ test('日报：数据源为计划/健身/灵感（不含文献），章节完整
   try {
     const { generateDraft } = require('./../main/report-service.js');
     const r = generateDraft('daily', today);
-    assert.ok(r.content.includes('今日计划 **2** 项（完成 **1** 项）'), '计划统计');
+    assert.ok(r.content.includes('今日每日计划 **2** 项（完成 **1** 项）'), '计划统计');
     assert.ok(r.content.includes('健身打卡 **1** 次'), '健身统计');
     assert.ok(r.content.includes('灵感 **1** 条'), '灵感统计');
     assert.ok(r.content.includes('实验设计'), '计划条目');

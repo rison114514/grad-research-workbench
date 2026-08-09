@@ -29,7 +29,7 @@ function fmtCn(d) {
 }
 
 /** 生成报告草稿（本地模板），返回 { content, dateRange }
- * 数据源：任务 + 待办事项（dailyPlans）+ 健身打卡（fitnessLogs）+ 灵感（inspirations）
+ * 数据源：任务 + 每日计划（dailyPlans）+ 健身打卡（fitnessLogs）+ 灵感（inspirations）
  * 注意：不读取文献管理数据（文献≠今日工作），避免把上传/阅读文献误认为当日产出
  */
 const FIT_TYPE_LABEL = { running: '跑步', strength: '力量', yoga: '瑜伽', ball: '球类', other: '其他' };
@@ -65,7 +65,7 @@ function generateDraft(type, date) {
   const doneTasks = tasks.filter((t) => t.status === 'done' && inRange(t.completedAt));
   const doingTasks = tasks.filter((t) => t.status === 'doing');
   const todoTasks = tasks.filter((t) => t.status === 'todo');
-  // 待办事项（dailyPlans.date 在范围内；items 平铺）
+  // 每日计划（dailyPlans.date 在范围内；items 平铺）
   const plans = dailyPlans.filter((p) => inRange(p.date));
   const planItems = plans.flatMap((p) => (p.items || []).map((it) => ({ ...it, date: p.date })));
   const doneItems = planItems.filter((it) => it.done);
@@ -80,7 +80,7 @@ function generateDraft(type, date) {
   lines.push('');
   lines.push('## 一、今日/本周概述');
   lines.push(`- 完成任务 **${doneTasks.length}** 项，进行中 **${doingTasks.length}** 项，待办 **${todoTasks.length}** 项`);
-  lines.push(`- ${type === 'daily' ? '今日' : '本周'}计划 **${planItems.length}** 项（完成 **${doneItems.length}** 项）`);
+  lines.push(`- ${type === 'daily' ? '今日' : '本周'}每日计划 **${planItems.length}** 项（完成 **${doneItems.length}** 项）`);
   lines.push(`- 健身打卡 **${fitDone.length}** 次（累计 **${fitMinutes}** 分钟）`);
   lines.push(`- 记录灵感 **${ideas.length}** 条`);
   lines.push('');
@@ -91,8 +91,8 @@ function generateDraft(type, date) {
     lines.push(`- [x] ${t.title}${p ? `（${p.name}）` : ''}`);
   });
   lines.push('');
-  lines.push('## 三、待办事项');
-  if (planItems.length === 0) lines.push('（无计划记录）');
+  lines.push('## 三、每日计划');
+  if (planItems.length === 0) lines.push('（无每日计划记录）');
   planItems.forEach((it) => {
     const time = [it.startTime, it.endTime].filter(Boolean).join('-');
     lines.push(`- [${it.done ? 'x' : ' '}] ${time ? `${time} ` : ''}${it.title}${it.note ? `（${it.note}）` : ''}`);

@@ -26,12 +26,15 @@ const AssistantActions = {
       if (ADD_TASK_RE.test(t)) return 'addTask';
       if (SPLIT_RE.test(t)) return 'splitTask';
       if (REPORT_RE.test(t)) return 'generateReport';
+      if (DELETE_TASK_RE.test(t)) return 'deleteTask';   // 删除任务（先于通用修改）
+      if (UPDATE_TASK_RE.test(t)) return 'updateTask';   // 修改任务（先于每日计划，防「改一下任务」漂移）
       if (UPDATE_TIME_RE.test(t)) return 'updateTimeLog';
       if (UPDATE_PLAN_RE.test(t)) return 'updateDailyPlan';
     }
     if (SUGGEST_RE.test(t)) return 'suggestInsights';
     if (QUERY_FITNESS_RE.test(t)) return 'queryFitness';
     if (QUERY_TIME_RE.test(t)) return 'queryTimeLog';
+    if (QUERY_TASK_RE.test(t)) return 'queryTask';       // 任务清单（先于 queryDailyPlan/queryStats）
     if (QUERY_PLAN_RE.test(t)) return 'queryDailyPlan';
     if (QUERY_RE.test(t)) return 'queryStats';
     if (HELP_RE.test(t)) return 'help';
@@ -40,7 +43,8 @@ const AssistantActions = {
 
   /* 语义层白名单：模型 JSON 动作只允许映射到这些动作 */
   canExecute(action) {
-    return ['addTask', 'addDailyPlan', 'addDailyPlanMulti', 'addTimeLog', 'addFitnessLog', 'addFitnessPlan',
+    return ['addTask', 'updateTask', 'deleteTask', 'queryTask', 'splitTask',
+      'addDailyPlan', 'addDailyPlanMulti', 'addTimeLog', 'addFitnessLog', 'addFitnessPlan',
       'updateDailyPlan', 'updateTimeLog',
       'queryStats', 'queryDailyPlan', 'queryTimeLog', 'queryFitness', 'suggestInsights', 'queryGitHubTrending',
       'queryLiterature', 'readLiterature', 'buildLiteratureRelations', 'generateReport', 'updateFitnessItem', 'addFitnessItem', 'addInspiration', 'queryInspirations', 'queryProjects',
@@ -459,6 +463,10 @@ const AssistantActions = {
   async executeStructured(action, params = {}) {
     switch (action) {
       case 'addTask': return await this.createTaskStructured(params);
+      case 'updateTask': return await this.updateTaskStructured(params);
+      case 'deleteTask': return await this.deleteTaskStructured(params);
+      case 'queryTask': return await this.queryTaskStructured(params);
+      case 'splitTask': return await this.splitTaskStructured(params);
       case 'addDailyPlan': return await this.createDailyPlanStructured(params);
       case 'addDailyPlanMulti': return await this.createDailyPlanMultiStructured(params);
       case 'addTimeLog': return await this.createTimeLogStructured(params);
@@ -803,12 +811,12 @@ ${doc}`;
     // 1. 逾期任务
     const overdue = tasks.filter((t) => t.status !== 'done' && t.dueDate && t.dueDate < today);
     if (overdue.length) tips.push(`你有 **${overdue.length}** 项任务已逾期（如「${App.esc(overdue[0].title)}」），建议今天优先处理或调整截止日期。`);
-    // 2. 待办事项
+    // 2. 每日计划
     const dayPlan = plans.find((p) => p.date === today);
     if (dayPlan && dayPlan.items.length) {
       const undone = dayPlan.items.filter((i) => !i.done);
       const done = dayPlan.items.length - undone.length;
-      tips.push(`待办事项完成 **${done}/${dayPlan.items.length}**${undone.length ? `，未完成：${undone.slice(0, 3).map((i) => App.esc(i.title)).join('、')}${undone.length > 3 ? ' 等' : ''}` : '，全部完成 🎉'}。`);
+      tips.push(`每日计划完成 **${done}/${dayPlan.items.length}**${undone.length ? `，未完成：${undone.slice(0, 3).map((i) => App.esc(i.title)).join('、')}${undone.length > 3 ? ' 等' : ''}` : '，全部完成 🎉'}。`);
     } else {
       tips.push('今天还没有日程安排，可以让我帮你规划，如「安排 今天9点到10点 写论文」。');
     }
@@ -850,6 +858,98 @@ ${doc}`;
     let reply = `**任务概况**\n\n- 总数 ${tasks.length} 项，已完成 **${done.length}**（今日完成 ${doneToday}）\n- 未完成 **${open.length}** 项（高 ${byPrio.high} / 中 ${byPrio.medium} / 低 ${byPrio.low}），已逾期 ${overdue} 项\n\n**最近待办**：\n`;
     reply += recent.length ? recent.map((t) => `- ${t.dueDate ? `[${t.dueDate}] ` : ''}${App.esc(t.title)}${t.priority === 'high' ? '（高优先）' : ''}`).join('\n') : '（无）';
     return reply;
+  },
+
+  /* ---------------- 任务：查询 / 修改 / 删除（Agent 工具，与每日计划严格区分） ---------------- */
+  async queryTaskStructured(params = {}) {
+    const tasks = await window.api.store.list('tasks');
+    const status = params.status; // 'todo' | 'doing' | 'done' | 'open'
+    let list = tasks;
+    if (status === 'open') list = tasks.filter((t) => t.status !== 'done');
+    else if (status && ['todo', 'doing', 'done'].includes(status)) list = tasks.filter((t) => t.status === status);
+    if (!list.length) return '当前没有符合条件的任务。';
+    const today = App.todayStr();
+    const done = list.filter((t) => t.status === 'done').length;
+    let reply = `**任务清单**（${list.length} 项，完成 ${done}）\n\n`;
+    reply += list.slice(0, 15).map((t) => `- [${t.status === 'done' ? 'x' : ' '}] ${App.esc(t.title)}${t.priority === 'high' ? '（高优先）' : ''}${t.dueDate ? ` 截止 ${t.dueDate}` : ''}${t.status !== 'done' && t.dueDate && t.dueDate < today ? ' ⚠️逾期' : ''}`).join('\n');
+    if (list.length > 15) reply += `\n…共 ${list.length} 项`;
+    return reply;
+  },
+
+  async updateTaskStructured(params = {}) {
+    const tasks = await window.api.store.list('tasks');
+    const matchTitle = String(params.matchTitle || '');
+    let target = null;
+    if (params.taskId) target = tasks.find((t) => t.id === params.taskId) || null;
+    if (!target && matchTitle) target = tasks.find((t) => t.title === matchTitle || t.title.includes(matchTitle) || matchTitle.includes(t.title)) || null;
+    if (!target) return `没有找到要修改的任务「${matchTitle || params.taskId || '？'}」，可用「查询我的待办」获取任务清单后重试。`;
+    const patch = {};
+    if (params.title) patch.title = String(params.title).slice(0, 60);
+    if (params.priority && ['high', 'medium', 'low'].includes(params.priority)) patch.priority = params.priority;
+    if (params.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(String(params.dueDate))) patch.dueDate = params.dueDate;
+    if (params.status && ['todo', 'doing', 'done'].includes(params.status)) {
+      patch.status = params.status;
+      if (params.status === 'done') patch.completedAt = new Date().toISOString();
+    }
+    if (!Object.keys(patch).length) return '没有识别到要修改的内容（标题/优先级/截止日期/状态）。';
+    await window.api.store.update('tasks', target.id, patch);
+    if (window.Tasks && window.Tasks.render) window.Tasks.render();
+    if (window.Board && window.Board.invalidate) window.Board.invalidate();
+    const bits = [];
+    if (patch.title) bits.push(`标题 → ${App.esc(patch.title)}`);
+    if (patch.priority) bits.push(`优先级 → ${PRIO_LABEL[patch.priority] || patch.priority}`);
+    if (patch.dueDate) bits.push(`截止日期 → ${formatDate(patch.dueDate)}`);
+    if (patch.status) bits.push(`状态 → ${patch.status === 'done' ? '✅ 已完成' : patch.status === 'doing' ? '进行中' : '待办'}`);
+    return `**已修改任务**：${App.esc(target.title)}\n- ${bits.join('\n- ')}\n\n已同步到「待办事项」页。`;
+  },
+
+  async deleteTaskStructured(params = {}) {
+    const tasks = await window.api.store.list('tasks');
+    const matchTitle = String(params.matchTitle || '');
+    let target = null;
+    if (params.taskId) target = tasks.find((t) => t.id === params.taskId) || null;
+    if (!target && matchTitle) target = tasks.find((t) => t.title === matchTitle || t.title.includes(matchTitle) || matchTitle.includes(t.title)) || null;
+    if (!target) return `没有找到要删除的任务「${matchTitle || params.taskId || '？'}」，可用「查询我的待办」获取任务清单后重试。`;
+    await window.api.store.remove('tasks', target.id);
+    if (window.Tasks && window.Tasks.render) window.Tasks.render();
+    if (window.Board && window.Board.invalidate) window.Board.invalidate();
+    return `**已删除任务**：${App.esc(target.title)}`;
+  },
+
+  /** 本地正则入口：把X改到Y / 把X标记完成（文本 → Structured） */
+  async updateTask(text) {
+    const t = String(text || '');
+    const op = t.match(/(?:把|将)\s*[「『]?([^「』\n，。；！？]{1,24})[」』]?\s*(?:改到|改为|改成|移到|调整到|提前到|推迟到|标记|标为|设为|删除|取消|移除|完成)/)
+      || t.match(/[「『]?([^「』\n，。；！？]{1,24})[」』]?\s*(?:改到|改为|改成|标记完成|标为完成|删除|取消)/);
+    const title = ((op && op[1]) || '').replace(/任务$/, '').trim();
+    if (!title || isGenericTitle(title)) return '没识别出要修改的任务，请这样输入：**把写论文改到明天** 或 **把写论文标记完成**';
+    if (/完成|标为|标记/.test(t)) return this.updateTaskStructured({ matchTitle: title, status: 'done' });
+    const dueDate = parseDateRef(t);
+    if (!dueDate) return '没识别出要改到哪天，请这样输入：**把写论文改到明天**';
+    return this.updateTaskStructured({ matchTitle: title, dueDate });
+  },
+
+  /** 本地正则入口：删除任务X（文本 → Structured） */
+  async deleteTask(text) {
+    const t = String(text || '');
+    const m = t.match(/(?:删除|取消|移除|清掉)\s*[「『]?([^「』\n，。；！？]{1,24})[」』]?/);
+    const title = ((m && m[1]) || '').replace(/任务$/, '').trim();
+    if (!title || isGenericTitle(title)) return '没识别出要删除的任务，请这样输入：**删除任务 整理实验数据**';
+    return this.deleteTaskStructured({ matchTitle: title });
+  },
+
+  /** 本地正则入口：查询任务（文本 → Structured） */
+  async queryTask(text) {
+    const t = String(text || '');
+    let status = null;
+    if (/已完成|完成的任务/.test(t)) status = 'done';
+    else if (/进行中/.test(t)) status = 'doing';
+    else if (/未完成|待办|还没/.test(t)) status = 'open';
+    return this.queryTaskStructured({ status });
+  },
+
+  async splitTaskStructured(params = {}) {
+    return this.splitTask(params && params.title ? `拆解 ${params.title}` : '拆解');
   },
 
   /* ---------------- 生成日报 / 周报 ---------------- */
@@ -922,8 +1022,8 @@ function stripPoliteShell(text) {
 }
 
 /* --- 动作正则 --- */
-// 新增任务：① 动词 + 对象词（任务/待办/todo；「计划」属日程语境不再归任务，避免「新增每日计划」被误建任务）；② 记一下/记个/加个（负向前瞻排除笔记类）
-const ADD_TASK_RE = /^(?:请|麻烦|你帮我|你帮|帮我)?\s*(?:(?:新增|添加|创建|安排)[^。；！？\n]{0,30}?(?:任务|待办|to[\s-]?do)|(?:记一下|记个|加个)(?![^。；！？\n]{0,8}(?:笔记|备忘|想法|灵感|日记|文献))[^。；！？\n]{0,40})/i;
+// 新增任务：① 动词 + 对象词（任务/待办/todo；「计划」属日程语境不再归任务，避免「新增每日计划」被误建任务）；② 记一下/记个/加个（负向前瞻排除笔记类 + 计划/日程/安排类）
+const ADD_TASK_RE = /^(?:请|麻烦|你帮我|你帮|帮我)?\s*(?:(?:新增|添加|创建|安排)[^。；！？\n]{0,30}?(?:任务|待办|to[\s-]?do)|(?:记一下|记个|加个)(?![^。；！？\n]{0,8}(?:笔记|备忘|想法|灵感|日记|文献|计划|日程|安排))[^。；！？\n]{0,40})/i;
 
 /** 每日计划批量判定：① 含「每日/每天」+「计划/安排/日程」；② 或含 ≥2 个独立时间段（时间段范围算一个） */
 function isDailyPlanMulti(t) {
@@ -952,6 +1052,9 @@ const QUERY_FITNESS_RE = /(?:看看|查看|我的|当前|本周|上月|总结|�
 const QUERY_PLAN_RE = /(?:看看|查看|我的|今天|今日|明天|明日|本周).{0,12}(?:计划|日程|安排)/;
 const QUERY_TIME_RE = /(?:时间|时长).*(?:分布|统计|花|哪里|多少)|(?:今天|今日|本周).*(?:时间|时长)/;
 const QUERY_RE = /(?:我的|当前|看看|总结|统计|还剩|多少|进度|完成).*(?:任务|进度|完成|待办|情况)/;
+const QUERY_TASK_RE = /(?:我的|看看|查看|查询|查一下|列出|有哪些|当前|全部)(?![^。；！？\n]{0,6}(?:总结|统计|进度|还剩))[^。；！？\n]{0,8}(?:待办|任务|todo)|(?:任务|待办)(?:清单|列表)(?![^。；！？\n]{0,4}(?:进度|统计))|(?:任务|待办).{0,6}(?:完成情况|有哪些)/i;
+const UPDATE_TASK_RE = /^(?:请|麻烦|你帮我|你帮|帮我)?\s*(?:修改|更改|更新|调整|改一下|推迟|提前|把|将)[^。；！？\n]{0,24}(?:任务|待办|todo)/i;
+const DELETE_TASK_RE = /^(?:请|麻烦|你帮我|你帮|帮我)?\s*(?:删除|取消|移除|清掉)[^。；！？\n]{0,24}(?:任务|待办|todo)/i;
 // 报告
 const REPORT_RE = /^(?:请|麻烦|你帮我|你帮|帮我)?\s*(?:生成|写|来一份|出一份|做)\s*(?:今天|今日|本周|这周|上周|昨天|的)*\s*(?:日报|周报)/;
 // 修改/删除 每日计划（放查询前，避免「删除明天的组会」被查询吞掉）

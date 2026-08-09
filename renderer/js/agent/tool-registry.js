@@ -9,7 +9,7 @@
 const TOOLS = [
   {
     name: 'addTask',
-    description: '新增一个任务。当用户说「添加/新增/创建任务、记一下待办」时使用。注意：用户安排具体时间段的事项（如「9点到11点写论文」）应使用 addDailyPlan 而非本工具；用户说「计划/日程」通常指每日计划。',
+    description: '新增一个任务（待办事项模块）。当用户说「添加/新增/创建任务、记一下待办」时使用。注意：①「计划/日程」指每日计划（addDailyPlan），用户安排具体时间段的事项（如「9点到11点写论文」）应使用 addDailyPlan 而非本工具；②修改/删除任务用 updateTask/deleteTask，查询任务清单用 queryTask。',
     parameters: {
       type: 'object',
       required: ['title'],
@@ -21,6 +21,54 @@ const TOOLS = [
     },
     write: true,
     executor: 'addTask'
+  },
+  {
+    name: 'queryTask',
+    description: '查询任务清单（待办事项模块）。当用户问「我的待办有哪些/查一下任务/任务进度/列出任务」时使用；status 可按需过滤（open=未完成/todo/doing/done）。修改或删除任务前建议先调用本工具定位标题。',
+    parameters: {
+      type: 'object',
+      properties: { status: { type: 'string', enum: ['open', 'todo', 'doing', 'done'], description: '按状态过滤，缺省全部' } }
+    },
+    write: false,
+    executor: 'queryTask'
+  },
+  {
+    name: 'updateTask',
+    description: '修改任务（标题/优先级/截止日期/状态）。当用户说「把X改到明天/把X标记完成/改一下任务X的优先级」时使用；matchTitle 按标题关键词定位。注意：写入操作会弹确认卡；仅处理任务（待办事项模块），每日计划用 updateDailyPlan；定位不到先 queryTask。',
+    parameters: {
+      type: 'object',
+      required: ['matchTitle'],
+      properties: {
+        matchTitle: { type: 'string', description: '任务标题关键词' },
+        title: { type: 'string', description: '新标题' },
+        priority: { type: 'string', enum: ['high', 'medium', 'low'] },
+        dueDate: { type: 'string', description: '截止日期 YYYY-MM-DD（相对日期换算）' },
+        status: { type: 'string', enum: ['todo', 'doing', 'done'], description: '新状态' }
+      }
+    },
+    write: true,
+    executor: 'updateTask'
+  },
+  {
+    name: 'deleteTask',
+    description: '删除任务。当用户说「删除任务X/把X任务删掉」时使用；matchTitle 按标题关键词定位。注意：写入操作会弹确认卡；仅处理任务（待办事项模块），每日计划用 updateDailyPlan；定位不到先 queryTask。',
+    parameters: {
+      type: 'object',
+      required: ['matchTitle'],
+      properties: { matchTitle: { type: 'string', description: '任务标题关键词' } }
+    },
+    write: true,
+    executor: 'deleteTask'
+  },
+  {
+    name: 'splitTask',
+    description: '将任务拆解为执行步骤。当用户说「帮我拆解/拆分/分解 任务X」时使用；title 为目标任务标题（缺省拆解最近未完成任务）。打开拆解预览弹窗，由用户编辑确认后应用。',
+    parameters: {
+      type: 'object',
+      properties: { title: { type: 'string', description: '目标任务标题' } }
+    },
+    write: false,
+    executor: 'splitTask'
   },
   {
     name: 'addDailyPlan',
@@ -111,7 +159,7 @@ const TOOLS = [
   },
   {
     name: 'updateDailyPlan',
-    description: '修改或删除每日计划项。当用户说「把X改到Y点」「删除X」「改一下计划」时使用；matchTitle 用于定位事项。',
+    description: '修改或删除【每日计划】项。当用户说「把X改到Y点」「删除X」「改一下计划」时使用；matchTitle 用于定位事项。注意：仅处理每日计划（时间段事项）；修改/删除【任务/待办】请用 updateTask/deleteTask，查询任务清单用 queryTask。',
     parameters: {
       type: 'object',
       required: ['date'],
@@ -238,7 +286,7 @@ const TOOLS = [
   },
   {
     name: 'generateReport',
-    description: '生成日报或周报（汇总完成任务/待办事项/健身打卡/灵感的 Markdown 报告）并保存到历史。当用户说「帮我生成今天的日报/总结今天的工作/生成周报/写日报」时使用。注意：写入操作，会弹确认卡；type=daily 日报/weekly 周报；date 默认今天；polish 用 AI 润色；数据源为任务、待办事项、健身打卡、灵感，不含文献。',
+    description: '生成日报或周报（汇总完成任务/每日计划/健身打卡/灵感的 Markdown 报告）并保存到历史。当用户说「帮我生成今天的日报/总结今天的工作/生成周报/写日报」时使用。注意：写入操作，会弹确认卡；type=daily 日报/weekly 周报；date 默认今天；polish 用 AI 润色；数据源为任务、每日计划、健身打卡、灵感，不含文献。',
     parameters: {
       type: 'object',
       properties: {

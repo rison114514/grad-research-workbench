@@ -128,7 +128,7 @@ test('负例：非任务/文献/闲聊 不误命中；否定与疑问回退 AI',
   assert.equal(A.match('帮我写论文摘要'), null);
   assert.equal(A.match('记一下笔记'), null);
   assert.equal(A.match('今天天气如何'), null);
-  assert.equal(A.match('帮我删除任务'), null);
+  assert.equal(A.match('帮我删除任务'), 'deleteTask', '「删除任务」命中删除动作（缺标题时引导补充）');
   assert.equal(A.match('hello'), null);
   // 审查 P1-4：否定句 / 疑问句不触发副作用动作
   assert.equal(A.match('我不想做日报'), null, '否定句不生成报告');
@@ -371,13 +371,16 @@ test('executeStructured：参数校验（非法日期/空标题被拒绝）', as
   assert.ok(r2.includes('未能加入计划') || db.dailyPlans.length === 0);
 });
 
-test('canExecute 白名单：拆解不在白名单（防副作用滥用）；报告已按需求接入', () => {
+test('canExecute 白名单：任务侧工具（含拆解）已接入；报告已按需求接入', () => {
   assert.equal(A.canExecute('addTask'), true);
+  assert.equal(A.canExecute('queryTask'), true, '任务查询已接入');
+  assert.equal(A.canExecute('updateTask'), true, '任务修改已接入');
+  assert.equal(A.canExecute('deleteTask'), true, '任务删除已接入');
+  assert.equal(A.canExecute('splitTask'), true, '拆解已接入白名单（拆解预览由用户确认，无副作用落库）');
   assert.equal(A.canExecute('addDailyPlan'), true);
   assert.equal(A.canExecute('addTimeLog'), true);
   assert.equal(A.canExecute('addFitnessLog'), true);
   assert.equal(A.canExecute('addFitnessPlan'), true);
-  assert.equal(A.canExecute('splitTask'), false, '拆解仍不在白名单（人工确认流程）');
   assert.equal(A.canExecute('generateReport'), true, '日报生成已接入 Agent（用户需求，走确认卡）');
   assert.equal(A.canExecute('evil'), false);
 });
@@ -454,7 +457,7 @@ test('suggestInsights：生成洞察建议（逾期/计划/时间/健身）', as
   const r = await A.suggestInsights();
   assert.ok(r.includes('洞察'));
   assert.ok(r.includes('已逾期') || r.includes('任务已逾期'));
-  assert.ok(r.includes('待办事项完成'));
+  assert.ok(r.includes('每日计划完成'), '洞察使用「每日计划」而非「待办事项」（避免与任务模块混淆）');
   assert.ok(r.includes('休息'));
   assert.ok(r.includes('健身'));
 });
@@ -589,4 +592,80 @@ test('addDailyPlanMulti：createDailyPlanMultiStructured 语义层入口', async
 test('addDailyPlanMulti：无事项 → 引导补充', () => {
   const r = A.addDailyPlanMulti('帮我新增一个每日计划');
   assert.ok(typeof r === 'string' && r.includes('没识别出'), '无事项引导补充');
+});
+
+/* ---------------- 任务侧 Agent 能力（queryTask/updateTask/deleteTask，与每日计划严格区分） ---------------- */
+test('意图路由：任务与每日计划不再混淆（记一下计划不建任务）', () => {
+  reset();
+  assert.notEqual(A.match('记一下明天的计划'), 'addTask', '「记一下…计划」不应误建任务（计划/日程归每日计划）');
+  assert.equal(A.match('记一下待办 买牛奶'), 'addTask', '「记一下待办」命中 addTask');
+  assert.equal(A.match('改一下任务 写论文的截止'), 'updateTask', '「改一下任务」走 updateTask 而非 updateDailyPlan');
+  assert.equal(A.match('删除任务 整理实验数据'), 'deleteTask', '「删除任务」走 deleteTask');
+  assert.equal(A.match('我的待办有哪些'), 'queryTask', '「我的待办」走 queryTask 而非 queryStats');
+  assert.equal(A.match('总结我的任务进度'), 'queryStats', '「总结任务进度」仍走统计（不归任务清单）');
+  assert.equal(A.match('把明天9点的写论文改到下午2点'), 'updateDailyPlan', '每日计划时间修改仍走 updateDailyPlan');
+});
+
+test('queryTaskStructured：任务清单 + 状态过滤', async () => {
+  reset();
+  await window.api.store.create('tasks', { title: '写论文', priority: 'high', dueDate: tomorrow(), status: 'todo' });
+  await window.api.store.create('tasks', { title: '整理数据', priority: 'medium', status: 'done', completedAt: new Date().toISOString() });
+  const all = await A.queryTaskStructured({});
+  assert.ok(all.includes('写论文') && all.includes('整理数据'), '全量清单');
+  const open = await A.queryTaskStructured({ status: 'open' });
+  assert.ok(open.includes('写论文') && !open.includes('整理数据'), '未完成过滤');
+  const done = await A.queryTaskStructured({ status: 'done' });
+  assert.ok(done.includes('整理数据') && !done.includes('写论文'), '已完成过滤');
+});
+
+test('updateTaskStructured：改截止日期 + 标记完成 + 未命中引导', async () => {
+  reset();
+  const t = await window.api.store.create('tasks', { title: '写论文', priority: 'medium', status: 'todo' });
+  const r1 = await A.updateTaskStructured({ matchTitle: '写论文', dueDate: tomorrow() });
+  assert.equal(db.tasks[0].dueDate, tomorrow(), '截止日期已更新');
+  assert.ok(r1.includes('已修改任务'));
+  const r2 = await A.updateTaskStructured({ matchTitle: '写论文', status: 'done' });
+  assert.equal(db.tasks[0].status, 'done', '状态已更新');
+  assert.ok(db.tasks[0].completedAt, '完成时间已记录');
+  const r3 = await A.updateTaskStructured({ matchTitle: '不存在的任务' });
+  assert.ok(r3.includes('没有找到') && r3.includes('查询我的待办'), '未命中引导查询');
+  assert.equal(db.tasks.length, 1, '无副作用');
+});
+
+test('deleteTaskStructured：删除任务 + 未命中', async () => {
+  reset();
+  await window.api.store.create('tasks', { title: '整理实验数据', status: 'todo' });
+  const r = await A.deleteTaskStructured({ matchTitle: '整理实验数据' });
+  assert.equal(db.tasks.length, 0, '任务已删除');
+  assert.ok(r.includes('已删除任务'));
+  const r2 = await A.deleteTaskStructured({ matchTitle: '不存在的' });
+  assert.ok(r2.includes('没有找到'), '未命中引导');
+});
+
+test('updateTask 文本入口：把X改到明天 / 把X标记完成', async () => {
+  reset();
+  await window.api.store.create('tasks', { title: '写论文', priority: 'medium', dueDate: null, status: 'todo' });
+  const r1 = await A.updateTask('把写论文改到明天');
+  assert.equal(db.tasks[0].dueDate, tomorrow(), '文本改期生效');
+  const r2 = await A.updateTask('把写论文标记完成');
+  assert.equal(db.tasks[0].status, 'done', '文本标记完成生效');
+});
+
+test('deleteTask 文本入口：删除任务X', async () => {
+  reset();
+  await window.api.store.create('tasks', { title: '清理缓存', status: 'todo' });
+  const r = await A.deleteTask('删除任务 清理缓存');
+  assert.equal(db.tasks.length, 0, '文本删除生效');
+  assert.ok(r.includes('已删除任务'));
+});
+
+test('executeStructured：任务侧工具分发（语义层入口）', async () => {
+  reset();
+  const t = await window.api.store.create('tasks', { title: '组会材料', status: 'todo' });
+  const q = await A.executeStructured('queryTask', { status: 'open' });
+  assert.ok(q.includes('组会材料'));
+  await A.executeStructured('updateTask', { matchTitle: '组会材料', priority: 'high' });
+  assert.equal(db.tasks[0].priority, 'high');
+  await A.executeStructured('deleteTask', { matchTitle: '组会材料' });
+  assert.equal(db.tasks.length, 0);
 });

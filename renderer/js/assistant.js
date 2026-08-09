@@ -73,7 +73,7 @@ const TOOLS_SYSTEM_PROMPT = `你是「塞西」（Xaihi），本名塞拉菲娜�
 6. 参数可合理推断时用合理默认值并在回答中说明假设，不要反复追问；只有真正缺少无法推断的关键信息时才询问一项。
 7. 今天日期由【当前工作区上下文】提供；相对日期（明天/昨天/本周）按它换算；时长换算 1.5小时=90分钟。
 8. 健康/健身类建议使用非专业草案语气，不假装掌握用户身体状况。
-9. 修改/删除某条记录前，若不确定目标名称或 ID：**先调用对应查询工具获取清单**（如 queryFitness 查看健身计划条目清单、queryDailyPlan 看日程、queryStats 看任务），再用修改工具按清单中的名称精确定位（如 updateFitnessItem 的 matchName）。添加条目用 addFitnessItem。
+9. 修改/删除某条记录前，若不确定目标名称或 ID：**先调用对应查询工具获取清单**（如 queryFitness 查看健身计划条目清单、queryDailyPlan 看日程、queryTask 看任务清单、queryStats 看任务统计），再用修改工具按清单中的名称精确定位（如 updateFitnessItem 的 matchName、updateTask 的 matchTitle）。添加条目用 addFitnessItem。
 
 如果无需调用工具，直接给出简洁、可执行的中文回答。`;
 
@@ -392,9 +392,20 @@ const Assistant = {
         ghSubOverview = `${ghSubs.length} 条（关键词 ${kw} / 仓库 ${rp}）`;
       }
     } catch (e) { /* 忽略订阅统计失败 */ }
+    // 每日计划概况（区分于任务/待办事项）
+    let planOverview = '今日暂无每日计划';
+    try {
+      const plans = await window.api.store.list('dailyPlans');
+      const day = plans.find((p) => p.date === today);
+      if (day && day.items && day.items.length) {
+        const done = day.items.filter((i) => i.done).length;
+        planOverview = `今日每日计划 ${day.items.length} 项（完成 ${done} 项）`;
+      }
+    } catch (e) { /* 忽略每日计划统计失败 */ }
     return [
       `【当前工作区上下文】\n今日日期：${today}，今日完成 ${doneToday} 项任务。`,
       `当前任务（未完成 ${todo.split('\n').filter((l) => l.startsWith('-')).length} 项）：\n${todo || '（无）'}`,
+      `【每日计划】${planOverview}。查看/修改每日计划用 queryDailyPlan/updateDailyPlan；任务（待办事项）用 queryTask/updateTask/deleteTask。`,
       `【文献库】${litOverview}。用户问文献相关问题时可用 queryLiterature 搜索、readLiterature 阅读。\n最近文献：\n${recentLit || '（无）'}`,
       `【健身】${fitnessOverview}。修改条目状态用 updateFitnessItem、添加动作用 addFitnessItem、查看条目清单用 queryFitness。`,
       `【GitHub 订阅】${ghSubOverview}。订阅用 subscribeGitHub、取消用 unsubscribeGitHub、查看清单用 queryGitHubSubs、看热榜用 queryGitHubTrending。`,
