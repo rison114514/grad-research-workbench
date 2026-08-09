@@ -253,8 +253,7 @@ function registerIpc() {
     return { ok: true };
   });
   ipcMain.handle('pet:openChat', () => {
-    petWindow.setMode('chat');
-    petWindow.ensureMainVisible(); // 最小化/隐藏的主窗口自动恢复（悬浮球展开聊天即唤起工作台）
+    petWindow.setMode('chat'); // 只展开桌宠对话框；不唤起主窗口（主窗口由程序坞/双击悬浮球唤起）
     return { ok: true };
   });
   ipcMain.handle('pet:closeChat', () => { petWindow.setMode('ball'); return { ok: true }; });
