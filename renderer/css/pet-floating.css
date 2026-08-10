@@ -15,6 +15,7 @@ body { -webkit-user-select: none; }
 .pet-ball {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
+  background: transparent; /* 显式透明（窗口透明的前提，防继承/重绘白底） */
   /* 手动 JS 拖动（-webkit-app-region:drag 在透明窗口会吞点击且 macOS 易卡死） */
   cursor: grab;
   animation: petBallFloat 4.2s ease-in-out infinite;

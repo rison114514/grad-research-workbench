@@ -49,6 +49,7 @@ function createPetWindow() {
     x, y,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000', // 关键：透明窗口必须显式透明底色，否则部分平台/版本默认白底
     resizable: false,
     hasShadow: false,
     alwaysOnTop: true,
