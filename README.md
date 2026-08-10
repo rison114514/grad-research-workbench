@@ -8,16 +8,18 @@
 
 ## 📦 下载（Release）
 
-**不想折腾源码？直接到 [GitHub Releases](https://github.com/rison114514/grad-research-workbench/releases/latest) 下载安装包**，解压即用，无需配置环境。
+**直接下载打包好的应用**：到 [GitHub Releases](https://github.com/rison114514/grad-research-workbench/releases/latest) 下载对应平台的安装包，**解压即用，无需安装 Node / 无需配置环境**。
 
 | 平台 | 下载 | 说明 |
 |---|---|---|
-| 🍎 macOS（Apple Silicon） | `科研工作台-v1.5.0-mac-arm64.dmg` | 打开后拖入「应用程序」即可 |
-| 🍎 macOS（Apple Silicon） | `科研工作台-v1.5.0-mac-arm64.zip` | 解压后直接运行 `.app` |
-| 🪟 Windows x64 | `科研工作台-v1.5.0-win32-x64.zip` | 解压后运行 `科研工作台.exe` |
+| 🍎 macOS（Apple Silicon） | `科研工作台-v1.5.2-mac-arm64.zip` | 解压后直接运行 `科研工作台.app`（⚠️ 见下方 macOS 说明） |
+| 🪟 Windows x64 | `科研工作台-v1.5.2-win32-x64.zip` | 解压后运行 `科研工作台.exe`（**建议用 7-Zip 解压**，见下方 Windows 说明） |
+| 🛡️ 完整性校验 | `SHA256SUMS.txt` | 与 zip 同目录，用于核对下载文件的哈希 |
 
-> ⚠️ **macOS**：当前为 ad-hoc 签名（无 Apple 官方信任），首次打开若提示「未验证的开发者」，请 **右键 → 打开** → 再点「打开」。
-> ⚠️ **Windows**：尚未做 Authenticode 代码签名，SmartScreen 会提示「未知发布者」，点「更多信息」→「仍要运行」即可。
+> ⚠️ **macOS**：当前为 ad-hoc 签名（无 Apple 官方公证）。首次打开若提示「无法验证开发者 / 应用已损坏」，请 **右键 → 打开** → 再点「打开」；仍被阻止可在「系统设置 → 隐私与安全性」中选择「仍要打开」。
+> ⚠️ **Windows**：
+> - 尚未做 Authenticode 商业签名，SmartScreen 可能提示「未知发布者」→ 点「更多信息」→「仍要运行」即可。
+> - **务必完整解压 ZIP 后再运行 `科研工作台.exe`**，不要直接在压缩包内双击。若 Windows 自带解压（资源管理器）报「无法解压缩 / 文件损坏 / 不支持此压缩格式」，请下载免费开源的 **[7-Zip](https://www.7-zip.org/)**（官网 64-bit x64 版），右键 zip → `7-Zip` → `解压到当前文件夹` 后运行。
 > 💡 新版发布会在 [Releases 页](https://github.com/rison114514/grad-research-workbench/releases) 推送，建议 Star 仓库跟进更新。
 
 ---
@@ -37,8 +39,8 @@ cd app
 npm run pack        # 一步完成：electron-packager 组装 → ad-hoc 整包重签 → 严格验证 → 压缩 ZIP → 解压复验
 ```
 
-- 产物：`dist/科研工作台-v1.5.0-mac-arm64.app`（arm64 / Apple Silicon）+ `.zip`（约 112MB）+ `.dmg`（约 129MB）
-- **Windows**：`npm run pack:win` → `dist/科研工作台-v1.5.0-win32-x64.zip`（内含主程序 `.exe`）
+- 产物：`dist/科研工作台-v1.5.2-mac-arm64.app`（arm64 / Apple Silicon）+ `.zip`（约 113MB）
+- **Windows**：`npm run pack:win` → `dist/科研工作台-v1.5.2-win32-x64.zip`（约 125MB，内含主程序 `科研工作台.exe`；mac 上交叉打包走手动构造流程，含关键文件完整性校验 + 解压复验）
 - 已内置自定义应用图标（`build/icon.icns` / `build/icon.ico`，源自品牌 logo）
 - **签名**：`scripts/package.sh` 会对最终 .app 执行 `codesign --force --deep --sign - --timestamp=none`，并 `codesign --verify --deep --strict` 确认 `valid on disk` / `satisfies its Designated Requirement`，压缩后解压再复验一次。避免出现「应用已损坏 / 无法验证开发者」的签名结构错误。
 - **注意**：ad-hoc 签名只适合本机/信任用户验证，无 Apple 官方信任，首次打开仍可能提示「未验证的开发者」（右键 → 打开）。公开发布需 Apple Developer ID 证书 + Hardened Runtime + Notarization 公证后再做 ZIP/DMG。
