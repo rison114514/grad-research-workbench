@@ -7,10 +7,10 @@ const petWindow = require('./pet-window');
 
 let mainWindow = null;
 
-// Windows 透明窗口支持（桌面宠物悬浮球需要；部分 Win 环境缺此开关会透明失效变白底）
+// Windows 透明窗口支持（桌面宠物悬浮球需要；enable-transparent-visuals 为透明必需，
+// 注意不要加 disable-gpu-compositing——部分 Win 环境强制软件合成会致透明窗口整窗不渲染）
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('enable-transparent-visuals');
-  app.commandLine.appendSwitch('disable-gpu-compositing'); // 个别 Win 显卡驱动下透明窗口重绘异常的白底兜底
 }
 
 // 单实例锁：防止重复启动产生多个应用进程/多个桌面宠物窗口（Windows 尤其关键）
@@ -68,7 +68,7 @@ if (gotLock) {
       const store = require('./store');
       const st = store.getSettings();
       if (st.petEnabled) petWindow.createPetWindow();
-    } catch (e) { /* 恢复失败不影响启动 */ }
+    } catch (e) { console.error('[pet] 恢复桌面宠物失败:', e); /* 恢复失败不影响启动 */ }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -26,7 +26,14 @@ function posPath() {
 function loadPos() {
   try {
     const obj = JSON.parse(fs.readFileSync(posPath(), 'utf-8'));
-    if (typeof obj.x === 'number' && typeof obj.y === 'number') return obj;
+    if (typeof obj.x === 'number' && typeof obj.y === 'number') {
+      // 屏外校验：坐标须落在当前任一显示器 workArea 内（显示器布局变更后窗口建于屏外会「看似消失」）
+      const inAnyDisplay = screen.getAllDisplays().some((d) => {
+        const a = d.workArea;
+        return obj.x >= a.x && obj.x < a.x + a.width && obj.y >= a.y && obj.y < a.y + a.height;
+      });
+      if (inAnyDisplay) return obj;
+    }
   } catch (e) { /* 无保存位置 */ }
   return null;
 }

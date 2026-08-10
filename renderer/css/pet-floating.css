@@ -19,16 +19,15 @@ body { -webkit-user-select: none; }
   /* 手动 JS 拖动（-webkit-app-region:drag 在透明窗口会吞点击且 macOS 易卡死） */
   cursor: grab;
   animation: petBallFloat 4.2s ease-in-out infinite;
-  transform-style: preserve-3d;
-  perspective: 420px;
+  /* 注意：不使用 preserve-3d/perspective——CSS 3D 变换会在透明窗口提升不透明合成层（白底 bug 根因） */
 }
 .pet-ball.dragging { cursor: grabbing; }
 
-/* 塞西头像（3D 悬浮：Z 轴浮起 + 微旋转） */
+/* 塞西头像（2D 悬浮：呼吸 + 微倾，纯平面变换保证透明窗口合成） */
 .pet-ball-inner {
   width: 88px; height: 88px;
   display: flex; align-items: center; justify-content: center;
-  transform: translateZ(42px) rotateY(-8deg) rotateX(4deg);
+  transform: rotate(-6deg);
   animation: petAvatarTilt 4.2s ease-in-out infinite;
 }
 .pet-ball-avatar {
@@ -162,14 +161,14 @@ body { -webkit-user-select: none; }
 }
 .pet-send:hover { border-color: var(--pet-yellow); }
 
-/* ============ 动画 ============ */
+/* ============ 动画（纯 2D 平面变换，保证透明窗口合成） ============ */
 @keyframes petBallFloat {
-  0%, 100% { transform: translateY(0) rotateX(0deg); }
-  50% { transform: translateY(-7px) rotateX(2deg); }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
 }
 @keyframes petAvatarTilt {
-  0%, 100% { transform: translateZ(42px) rotateY(-8deg) rotateX(4deg); }
-  50% { transform: translateZ(52px) rotateY(8deg) rotateX(-2deg); }
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-4px) rotate(6deg); }
 }
 @keyframes petOrbitSpin { to { transform: rotate(360deg); } }
 @keyframes petGlowPulse {
