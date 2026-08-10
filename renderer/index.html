@@ -576,12 +576,13 @@
         <header class="page-head">
           <div>
             <h1>每日计划</h1>
-            <p class="page-sub">按日 / 按周规划日程 · 可一键转为任务</p>
+            <p class="page-sub">按日 / 按周规划日程 · 每日/每周模板 · 可一键转为任务</p>
           </div>
           <div class="head-actions">
             <div class="seg" id="planMode">
               <button class="seg-btn active" data-m="day">按日</button>
               <button class="seg-btn" data-m="week">按周</button>
+              <button class="seg-btn" data-m="templates">模板</button>
             </div>
             <input type="date" class="input" id="planDate">
             <button class="btn btn-primary" id="planAddBtn">＋ 新增计划</button>
@@ -598,6 +599,19 @@
             <button class="btn" id="planWeekToday">本周</button>
           </div>
           <div class="plan-week-grid" id="planWeekGrid"></div>
+        </div>
+        <div class="plan-templates-view hidden" id="planTemplatesView">
+          <div class="plan-tpl-hint">模板是「固定安排」规则（如「每天 9 点上班」「每周三买菜」）。让塞西帮你创建，或在对话中说「每天9点到10点上班」；创建后可「应用到今日」把规则派生到具体日期。</div>
+          <div class="plan-tpl-cols">
+            <div class="plan-tpl-col">
+              <div class="plan-tpl-head"><b>每日模板</b><small id="planTplDailyCount">0</small></div>
+              <div class="plan-tpl-list" id="planTplDailyList"></div>
+            </div>
+            <div class="plan-tpl-col">
+              <div class="plan-tpl-head"><b>每周模板</b><small id="planTplWeeklyCount">0</small></div>
+              <div class="plan-tpl-list" id="planTplWeeklyList"></div>
+            </div>
+          </div>
         </div>
       </section>
 

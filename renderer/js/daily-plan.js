@@ -15,7 +15,8 @@ const DailyPlan = {
     document.getElementById('planDate').value = this.state.date;
     document.getElementById('planDate').max = App.todayStr();
     if (this.state.mode === 'day') await this.renderDay();
-    else await this.renderWeek();
+    else if (this.state.mode === 'week') await this.renderWeek();
+    else await this.renderTemplates();
   },
 
   /* ---------- 按日视图 ---------- */
@@ -65,10 +66,11 @@ const DailyPlan = {
             <span>${App.esc(item.endTime || '--:--')}</span>
           </div>
           <div class="plan-item-main">
-            <div class="plan-item-title">${App.esc(item.title)}</div>
+            <div class="plan-item-title">${App.esc(item.title)}${item.source === 'template' ? ' <span class="plan-src-tag" title="来自模板：' + App.esc(item.templateName || '') + '">🔄</span>' : ''}</div>
             ${item.note ? `<div class="plan-item-note">${App.esc(item.note)}</div>` : ''}
             <div class="plan-item-meta">
               <span class="tag" style="background:${this.typeColors[item.type] || '#9b9fa5'};color:#fff;border:none">${this.typeLabels[item.type] || item.type}</span>
+              ${item.source === 'template' ? `<span class="tag" style="background:#3a3f45;color:#e8eaed;border:none">模板</span>` : ''}
               ${item.taskId ? '<span class="tag" style="background:#fff44f;color:#000;border:none">已转任务</span>' : ''}
             </div>
           </div>
@@ -187,7 +189,7 @@ const DailyPlan = {
               const done = item.taskId ? (tasks.find((t) => t.id === item.taskId)?.status === 'done') : item.done;
               return `<div class="plan-week-item ${done ? 'done' : ''}">
                 <span class="pw-time">${App.esc(item.startTime || '--:--')}</span>
-                <span class="pw-title">${App.esc(item.title)}</span>
+                <span class="pw-title">${item.source === 'template' ? '🔄 ' : ''}${App.esc(item.title)}</span>
               </div>`;
             }).join('') : '<span class="pw-empty">无安排</span>'}
             ${items.length > 8 ? `<span class="pw-more">+${items.length - 8} 项</span>` : ''}
@@ -199,6 +201,89 @@ const DailyPlan = {
   async gotoDate(date) {
     this.state.date = date;
     document.getElementById('planDate').value = date;
+    await this.render();
+  },
+
+  /* ---------- 模板视图（每日/每周固定安排） ---------- */
+  async renderTemplates() {
+    const [dailyTpls, weeklyTpls] = await Promise.all([
+      window.api.store.list('dailyTemplates'),
+      window.api.store.list('weeklyTemplates')
+    ]);
+    const freqLabel = { everyday: '每天', weekdays: '周内', weekend: '周末' };
+    const weekdayLabel = ['日', '一', '二', '三', '四', '五', '六'];
+    document.getElementById('planTplDailyCount').textContent = dailyTpls.length;
+    document.getElementById('planTplWeeklyCount').textContent = weeklyTpls.length;
+    const today = this.state.date || App.todayStr();
+
+    const dailyHtml = dailyTpls.length ? dailyTpls.map((t) => {
+      const f = freqLabel[t.frequency] || `自定义${(t.weekdays || []).map((w) => '周' + weekdayLabel[w]).join('/')}`;
+      return `<div class="plan-tpl-item" data-tpl="${App.esc(t.id)}" data-domain="dailyTemplates">
+        <div class="plan-tpl-info">
+          <b>${App.esc(t.name)}</b>
+          <span>${f} · ${t.items.length} 项</span>
+        </div>
+        <div class="plan-tpl-acts">
+          <button class="btn btn-sm" data-act="apply" title="应用到 ${today}">应用到今日</button>
+          <button class="btn btn-sm danger" data-act="del">删除</button>
+        </div>
+      </div>`;
+    }).join('') : '<div class="empty-tip">暂无每日模板。让塞西创建，例如说「每天9点到10点上班，下午2点学3小时」</div>';
+
+    const weeklyHtml = weeklyTpls.length ? weeklyTpls.map((t) => {
+      return `<div class="plan-tpl-item" data-tpl="${App.esc(t.id)}" data-domain="weeklyTemplates">
+        <div class="plan-tpl-info">
+          <b>${App.esc(t.name)}</b>
+          <span>每周${weekdayLabel[t.weekday] || '?'} · ${t.items.length} 项</span>
+        </div>
+        <div class="plan-tpl-acts">
+          <button class="btn btn-sm" data-act="apply" title="应用到 ${today}">应用到今日</button>
+          <button class="btn btn-sm danger" data-act="del">删除</button>
+        </div>
+      </div>`;
+    }).join('') : '<div class="empty-tip">暂无每周模板。让塞西创建，例如说「每周三晚上买菜」</div>';
+
+    document.getElementById('planTplDailyList').innerHTML = dailyHtml;
+    document.getElementById('planTplWeeklyList').innerHTML = weeklyHtml;
+  },
+
+  async applyTemplateToToday(domain, tplId) {
+    // 模板派生走确定性逻辑（不依赖 AI）
+    try {
+      if (window.AssistantActions && AssistantActions.applyTemplateStructured) {
+        const reply = await AssistantActions.applyTemplateStructured({ templateId: tplId, targetDate: this.state.date || App.todayStr() });
+        App.toast(typeof reply === 'string' ? reply.split('\n')[0] : '已应用');
+      } else {
+        // 浏览器预览降级：本地展开
+        const plans = await window.api.store.list('dailyPlans');
+        const tpls = await window.api.store.list(domain);
+        const tpl = tpls.find((t) => t.id === tplId);
+        if (!tpl) { App.toast('模板不存在'); return; }
+        const date = this.state.date || App.todayStr();
+        let plan = plans.find((p) => p.date === date);
+        if (!plan) plan = await window.api.store.create('dailyPlans', { date, items: [] });
+        const dupKeys = new Set(plan.items.map((e) => `${e.startTime}|${e.title}`));
+        let added = 0;
+        for (const it of (domain === 'dailyTemplates' ? tpl.items : tpl.items.map((i) => ({ ...i, startTime: i.startTime || '09:00', endTime: i.endTime || '10:00' })))) {
+          const k = `${it.startTime}|${it.title}`;
+          if (dupKeys.has(k)) continue;
+          dupKeys.add(k);
+          plan.items.push({ id: `item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, startTime: it.startTime, endTime: it.endTime, title: it.title, type: it.type || 'work', note: it.note || '', done: false, taskId: null, source: 'template', templateId: tpl.id, templateName: tpl.name });
+          added += 1;
+        }
+        if (added) await window.api.store.update('dailyPlans', plan.id, { items: plan.items });
+        App.toast(added ? `已应用 ${added} 项` : '当天已有全部事项');
+      }
+    } catch (e) {
+      App.toast('应用失败：' + ((e && e.message) || e));
+    }
+    await this.render();
+  },
+
+  async deleteTemplate(domain, tplId) {
+    if (!confirm('确定删除该模板？已派生的历史数据不受影响。')) return;
+    await window.api.store.remove(domain, tplId);
+    App.toast('已删除模板');
     await this.render();
   }
 };
@@ -216,7 +301,19 @@ document.addEventListener('DOMContentLoaded', () => {
     DailyPlan.state.mode = btn.dataset.m;
     document.getElementById('planDayView').classList.toggle('hidden', btn.dataset.m !== 'day');
     document.getElementById('planWeekView').classList.toggle('hidden', btn.dataset.m !== 'week');
+    document.getElementById('planTemplatesView').classList.toggle('hidden', btn.dataset.m !== 'templates');
     DailyPlan.render();
+  });
+
+  // 模板面板操作：应用 / 删除
+  document.getElementById('planTemplatesView').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]');
+    const item = e.target.closest('.plan-tpl-item');
+    if (!btn || !item) return;
+    const tplId = item.dataset.tpl;
+    const domain = item.dataset.domain;
+    if (btn.dataset.act === 'apply') await DailyPlan.applyTemplateToToday(domain, tplId);
+    else if (btn.dataset.act === 'del') await DailyPlan.deleteTemplate(domain, tplId);
   });
 
   document.getElementById('planDate').addEventListener('change', (e) => {

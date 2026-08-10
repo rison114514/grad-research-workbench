@@ -1,6 +1,6 @@
 {
   "name": "grad-research-workbench",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "面向工科研究生的个人智能工作台（本地数据 + AI Agent 集成）",
   "main": "main/index.js",
   "author": "rison",
