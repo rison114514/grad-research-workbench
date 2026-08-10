@@ -37,6 +37,49 @@ function personaLead(name) {
   return PERSONA_LEADS.default;
 }
 
+/**
+ * 将窗口消息写入模型上下文。最近两条通常是「上一轮草案 + 当前确认」，
+ * 必须保留足够细节，才能正确处理「保存它 / 就按刚才的」这类跨轮引用。
+ */
+function formatHistoryForContext(hist) {
+  const list = Array.isArray(hist) ? hist : [];
+  return list.map((m) => `${m.role === 'user' ? '用户' : '助手'}: ${String(m.content || '')}`).join('\n');
+}
+
+const DEFAULT_AGENT_CONTEXT_TOKENS = 32000;
+const DEFAULT_AGENT_OUTPUT_TOKENS = 4096;
+
+function clampAgentNumber(value, fallback, min, max) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
+}
+
+/** 中文按约 1 字/token、ASCII 按约 4 字符/token，作为跨模型的保守本地估算。 */
+function estimateContextTokens(value) {
+  const text = String(value || '');
+  const cjk = (text.match(/[\u3400-\u9fff\uf900-\ufaff]/g) || []).length;
+  return cjk + Math.ceil((text.length - cjk) / 4);
+}
+
+/** 把已知工具的参数校验失败转成可回传模型的错误结果，以便 Agent 自行补参重试。 */
+function buildToolValidationRepair(tc, name, errors) {
+  const callId = tc.id || `call_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+  const detail = (errors || []).join('；') || '参数不完整';
+  return {
+    callId,
+    assistantCall: {
+      id: callId,
+      type: 'function',
+      function: { name, arguments: JSON.stringify(tc.arguments || {}) }
+    },
+    toolResult: {
+      tool_call_id: callId,
+      output: `工具参数校验失败：${detail}。请根据【对话历史】和上一轮完整草案补齐所有必填参数后，重新调用 ${name}；不得再次提交空参数。`
+    },
+    message: `> 「${name}」参数无效（${detail}），正在根据上一轮内容自动补全。`
+  };
+}
+
 /* Agent 全局人格：塞西（《明日方舟：终末地》干员）——宠物只是悬浮入口，主智能助理与桌面宠物共用同一人格 */
 
 /* 主抽屉 chatBody stub：浮窗页无 chatBody 时返回空对象，DOM 操作 no-op 不崩溃（记录照常） */
@@ -76,6 +119,7 @@ const TOOLS_SYSTEM_PROMPT = `你是「塞西」（Xaihi），本名塞拉菲娜�
 9. 修改/删除某条记录前，若不确定目标名称或 ID：**先调用对应查询工具获取清单**（如 queryFitness 查看健身计划条目清单、queryDailyPlan 看日程、queryTask 看任务清单、queryStats 看任务统计），再用修改工具按清单中的名称精确定位（如 updateFitnessItem 的 matchName、updateTask 的 matchTitle）。添加条目用 addFitnessItem。
 10. **周期识别（v1.6.0 关键规则）**：用户说「每天/每日/周内/每周/固定安排」→ **必须**调用 createDailyTemplate / createWeeklyTemplate（模板是规则），**绝不**调用 addDailyPlanMulti 展开到多天。「每天 9 点上班」「每周三买菜」都是**模板**，不是某个具体日期的多份日程。模板保存后可由 applyTemplate 派生到具体日期。
 11. **写入幂等**：所有写工具的 apply 内部已对「同日同 startTime+title」做去重（重复确认同模板同日不会重复落库）。一次确认对应一次落库；不要为「同重复请求」生成多个确认请求（AgentLoop 已合并同 hash 的多 tool_call 为单张确认卡）。
+12. **承接上一轮草案**：用户在你给出方案后说「可以」「由你保存」「保存它」「就按这个」等，即表示确认保存上一轮方案。必须从【对话历史】恢复完整的名称与条目并调用对应写工具，不能提交空参数，也不要再次要求用户复述。若收到工具参数校验失败的 tool 结果，应补齐参数并重新调用。
 
 如果无需调用工具，直接给出简洁、可执行的中文回答。`;
 
@@ -188,7 +232,7 @@ const Assistant = {
   async recordMessage(role, content, extra = {}) {
     const msg = {
       sessionId: this.state.sessionId, role,
-      kind: 'text', content: String(content || '').slice(0, 4000),
+      kind: 'text', content: String(content || '').slice(0, 32000),
       createdAt: new Date().toISOString(), ...extra
     };
     const saved = await window.api.store.create('assistantMessages', msg);
@@ -212,6 +256,10 @@ const Assistant = {
 
   renderRecorded(m) {
     if (m.role === 'user') { this.addMsg('user', m.content); return; }
+    if (m.kind === 'structured_draft' && !m.confirmed && m.draftStatus !== 'discarded') {
+      this.addMsg('ai', `${m.content}\n\n> ◇ 已保留为结构化草案，可回复“保存它”生成确认卡。`);
+      return;
+    }
     if (m.kind === 'draft' && !m.confirmed) {
       // 历史中的未确认草案：展示为「草案（未保存）」标注
       this.addMsg('ai', `${m.content}\n\n> ⚠️ 该草案未保存（历史记录）`);
@@ -225,8 +273,10 @@ const Assistant = {
    * 构建上下文记忆。scope 表示「目标会话」：主抽屉用 this.state；外部 target（如桌面宠物）
    * 通过 getSession() 提供自己的会话（sessionId/sessions/messages），实现多会话隔离。
    */
-  async buildMemoryContext(scope = null) {
+  async buildMemoryContext(scope = null, options = {}) {
     scope = scope || this.state;
+    const userText = String(options.userText || '');
+    const tokenBudget = clampAgentNumber(options.tokenBudget, DEFAULT_AGENT_CONTEXT_TOKENS, 4000, 800000);
     const parts = [];
     // 1. 滚动摘要
     const sess = (scope.sessions || []).find((s) => s.id === scope.sessionId);
@@ -234,28 +284,34 @@ const Assistant = {
     if (sum && ((sum.goals && sum.goals.length) || (sum.decisions && sum.decisions.length) || (sum.pending && sum.pending.length))) {
       parts.push(`【会话摘要】\n用户目标：${(sum.goals || []).join('；') || '（无）'}\n已确认决定：${(sum.decisions || []).join('；') || '（无）'}\n待确认：${(sum.pending || []).join('；') || '（无）'}`);
     }
-    // 2. 窗口历史（字符预算约 7000，最多 12 条）
-    const hist = this.windowMessages(7000, scope.messages || []);
-    if (hist.length) {
-      parts.push(`【对话历史】\n${hist.map((m) => `${m.role === 'user' ? '用户' : '助手'}: ${truncate(m.content, 180)}`).join('\n')}`);
+    // 2. 当前结构化草案：不依赖自然语言重新抽取，支持「保存它 / 修改刚才那份」。
+    const currentDraft = window.AgentDraftMemory && AgentDraftMemory.shouldReferenceDraft(userText)
+      ? AgentDraftMemory.latestDraftOrExtract(scope.messages || []) : null;
+    if (currentDraft) {
+      parts.push(`【当前结构化草案】\naction=${currentDraft.action}\nparams=${JSON.stringify(currentDraft.params)}`);
     }
-    // 3. 最近动作结果（支撑「它/刚才那个」定位）
+    // 3. 窗口历史：按用户设置的近似 token 预算选择，消息正文不再二次截断。
+    const hist = this.windowMessages(tokenBudget, scope.messages || []);
+    if (hist.length) {
+      parts.push(`【对话历史】\n${formatHistoryForContext(hist)}`);
+    }
+    // 4. 最近动作结果（支撑「它/刚才那个」定位）
     const last = this.lastActionResult(scope.messages || []);
     if (last) parts.push(`【最近操作】${last}`);
-    // 4. 工作区数据
+    // 5. 工作区数据
     parts.push(await this.buildContext());
     return parts.join('\n\n');
   },
 
-  /** 窗口内最近消息（按字符预算倒序收集）；messages 缺省用主抽屉会话 */
+  /** 窗口内最近消息（按近似 token 预算倒序收集）；messages 缺省用主抽屉会话 */
   windowMessages(budget, messages = null) {
     const list = messages || this.state.messages;
     const out = [];
     let used = 0;
     for (let i = list.length - 1; i >= 0; i--) {
       const m = list[i];
-      const c = (m.content || '').length + 40;
-      if (out.length >= 12 || (used + c > budget && out.length >= 2)) break;
+      const c = estimateContextTokens(m.content || '') + 16;
+      if (out.length >= 200 || (used + c > budget && out.length >= 2)) break;
       out.unshift(m);
       used += c;
     }
@@ -356,6 +412,8 @@ const Assistant = {
   },
 
   async buildContext() {
+    const settings = await window.api.store.getSettings();
+    const profileContext = window.AgentDraftMemory ? AgentDraftMemory.authorizedProfileContext(settings) : '';
     const tasks = await window.api.store.list('tasks');
     const today = App.todayStr();
     const todo = tasks.filter((t) => t.status !== 'done').slice(0, 12)
@@ -405,6 +463,7 @@ const Assistant = {
       }
     } catch (e) { /* 忽略每日计划统计失败 */ }
     return [
+      profileContext,
       `【当前工作区上下文】\n今日日期：${today}，今日完成 ${doneToday} 项任务。`,
       `当前任务（未完成 ${todo.split('\n').filter((l) => l.startsWith('-')).length} 项）：\n${todo || '（无）'}`,
       `【每日计划】${planOverview}。查看/修改每日计划用 queryDailyPlan/updateDailyPlan；任务（待办事项）用 queryTask/updateTask/deleteTask。`,
@@ -412,7 +471,78 @@ const Assistant = {
       `【健身】${fitnessOverview}。修改条目状态用 updateFitnessItem、添加动作用 addFitnessItem、查看条目清单用 queryFitness。`,
       `【GitHub 订阅】${ghSubOverview}。订阅用 subscribeGitHub、取消用 unsubscribeGitHub、查看清单用 queryGitHubSubs、看热榜用 queryGitHubTrending。`,
       lastReport ? `最近生成的报告类型：${lastReport.type}（${lastReport.dateRange.label}）` : '尚未生成过报告'
-    ].join('\n\n');
+    ].filter(Boolean).join('\n\n');
+  },
+
+  /** 普通自然语言回复的附加元数据：识别详细日程时同步保存无副作用结构化草案。 */
+  messageMetadata(content) {
+    if (!window.AgentDraftMemory) return { kind: 'text' };
+    return AgentDraftMemory.extractDailyTemplateDraft(content) || { kind: 'text' };
+  },
+
+  /** 规划请求被模型路由成 createDailyTemplate 时，只展示并保留草案，不弹执行卡、不写入。 */
+  async renderPlanningToolProposal(toolCalls, loading, trace, target) {
+    if (!window.AgentDraftMemory || !window.ToolRegistry) return false;
+    const tc = (toolCalls || []).find((call) => call && call.name === 'createDailyTemplate');
+    if (!tc) return false;
+    const checked = ToolRegistry.validate(tc.name, tc.arguments || {});
+    if (!checked.ok) return false;
+    const meta = AgentDraftMemory.fromDailyTemplateParams(checked.params);
+    if (!meta) return false;
+    const p = meta.params;
+    const content = `## ${p.name}\n\n${p.items.map((item) => `- **${item.startTime}${item.endTime ? `–${item.endTime}` : ''}**　${item.title}${item.note ? ` — ${item.note}` : ''}`).join('\n')}\n\n> 已保留为结构化草案，但尚未写入。需要保存时回复“保存它”。`;
+    loading.innerHTML = App.markdown(content);
+    this.appendTrace(loading, [...(trace || []), { t: 'info', label: '规划模式保护', detail: '工具参数已转换为草案，未执行写入' }]);
+    await target.record('ai', content, meta);
+    target.scroll();
+    return true;
+  },
+
+  async markStructuredDraft(draft, status) {
+    if (!draft) return;
+    const patch = {
+      draftStatus: status,
+      confirmed: status === 'confirmed',
+      resolvedAt: new Date().toISOString()
+    };
+    Object.assign(draft, patch);
+    if (draft._sourceMessage) Object.assign(draft._sourceMessage, patch);
+    if (draft.id) {
+      try { await window.api.store.update('assistantMessages', draft.id, patch); } catch (e) { /* 内存状态仍有效 */ }
+    }
+  },
+
+  /** “保存它”确定性路径：直接读取结构化草案生成确认卡，不再让模型重建参数。 */
+  async tryResumeStructuredDraft(text, loading, scope, target) {
+    if (!window.AgentDraftMemory || !AgentDraftMemory.isSaveReference(text)) return false;
+    const draft = AgentDraftMemory.latestDraftOrExtract((scope && scope.messages) || []);
+    if (!draft || !window.ToolRegistry || !ToolRegistry.get(draft.action)) return false;
+    if (draft.recoveredFromText && draft.id) {
+      const patch = {
+        kind: draft.kind, draftType: draft.draftType, action: draft.action, params: draft.params,
+        draft: true, confirmed: false, draftStatus: 'open'
+      };
+      try { await window.api.store.update('assistantMessages', draft.id, patch); } catch (e) { /* 本轮仍可直接使用 */ }
+      const original = ((scope && scope.messages) || []).find((m) => m.id === draft.id);
+      if (original) {
+        Object.assign(original, patch);
+        Object.defineProperty(draft, '_sourceMessage', { value: original, enumerable: false, configurable: true });
+      }
+      delete draft.recoveredFromText;
+    }
+    const checked = ToolRegistry.validate(draft.action, draft.params || {});
+    if (!checked.ok) return false;
+    const p = checked.params;
+    const items = Array.isArray(p.items) ? p.items : [];
+    const preview = `**${p.name || '每日计划'}** · ${items.length} 个时间块\n\n${items.map((item) => `- ${item.startTime || '--:--'}${item.endTime ? `–${item.endTime}` : ''}　${item.title || ''}`).join('\n')}\n\n> 已直接读取上一轮结构化草案，无需重新解析文本。`;
+    const card = AssistantActions.buildDraftCard(draft.action, p, [], preview);
+    this.renderResult(loading, card, async (reply, extra) => {
+      await target.record('ai', reply, extra);
+      if (extra && extra.confirmed) await this.markStructuredDraft(draft, 'confirmed');
+      else if (reply === '已放弃') await this.markStructuredDraft(draft, 'discarded');
+    }, personaLead(draft.action));
+    this.appendTrace(loading, [{ t: 'info', label: '读取结构化草案', detail: `${p.name || '每日计划'} · ${items.length} 项` }]);
+    return true;
   },
 
   /* ================= 结果渲染（确认卡 / 草案卡 / clarify） ================= */
@@ -480,7 +610,7 @@ const Assistant = {
         const content = intent.content || rawContent || '';
         loading.innerHTML = App.markdown(content);
         this.appendTrace(loading, trace || []);
-        await target.record('ai', content, { kind: 'text' });
+        await target.record('ai', content, this.messageMetadata(content));
         break;
       }
       case 'clarify': {
@@ -515,7 +645,7 @@ const Assistant = {
       default:
         loading.innerHTML = App.markdown(rawContent || '');
         this.appendTrace(loading, trace || []);
-        await target.record('ai', rawContent || '', { kind: 'text' });
+        await target.record('ai', rawContent || '', this.messageMetadata(rawContent || ''));
     }
   },
 
@@ -546,6 +676,9 @@ const Assistant = {
       loading.innerHTML = `<span class="spinner"></span>处理中…`;
       scope = await this.resolveScope(target); // 目标会话上下文（宠物=pet-chat；缺省=主抽屉）
 
+      // 上一轮已形成结构化草案时，“保存它”直接生成确认卡，绕过易丢参数的二次模型解析。
+      if (await this.tryResumeStructuredDraft(text, loading, scope, target)) return;
+
       const settings = await window.api.store.getSettings();
       const aiReady = !!(settings.aiBaseUrl && settings.aiApiKey && settings.aiModel);
 
@@ -553,21 +686,51 @@ const Assistant = {
       if (aiReady) {
         loading.innerHTML = `<span class="spinner"></span>AI 理解中…`;
         const trace = [{ t: 'info', label: '构建上下文', detail: '会话摘要 + 窗口历史 + 最近操作 + 工作区数据' }];
-        const ctx = await this.buildMemoryContext(scope);
+        const contextTokens = clampAgentNumber(settings.agentContextTokens, DEFAULT_AGENT_CONTEXT_TOKENS, 4000, 800000);
+        const outputTokens = clampAgentNumber(settings.agentMaxOutputTokens, DEFAULT_AGENT_OUTPUT_TOKENS, 1024, 32768);
+        const ctx = await this.buildMemoryContext(scope, { userText: text, tokenBudget: contextTokens });
         const tools = window.ToolRegistry ? ToolRegistry.list() : [];
         const t0 = Date.now();
-        const r = await window.api.ai.chatTools(
+        let r = await window.api.ai.chatTools(
           [{ role: 'user', content: `${ctx}\n\n【用户输入】\n${text}` }],
           tools,
-          { maxTokens: 1200, system }
+          { maxTokens: outputTokens, system }
         );
         trace.push({ t: 'llm', label: `调用模型 ${settings.aiModel || ''}`, detail: `${Date.now() - t0}ms` });
+        // 部分思考模型可能把输出预算耗尽后返回 content=""。无工具结果时无工具重试一次，避免落库“（空）”。
+        if (r.ok && (!Array.isArray(r.toolCalls) || !r.toolCalls.length) && !String(r.content || '').trim()) {
+          trace.push({ t: 'info', label: '空响应自动重试', detail: `finish_reason=${r.finishReason || 'unknown'} · 禁用工具后请求正文` });
+          r = await window.api.ai.chatTools(
+            [{ role: 'user', content: `${ctx}\n\n【用户输入】\n${text}\n\n请直接输出完整中文正文，不要留空。` }],
+            [],
+            { maxTokens: outputTokens, system }
+          );
+        }
         if (r.ok) {
           if (Array.isArray(r.toolCalls) && r.toolCalls.length) {
+            // “帮我规划”是无副作用请求；即便模型选择写工具，也只能展示为草案。
+            if (window.AgentDraftMemory && AgentDraftMemory.isPlanningRequest(text)
+              && await this.renderPlanningToolProposal(r.toolCalls, loading, trace, target)) return;
+            // 问候绝不能被历史中的开放草案劫持成写操作。
+            if (window.AgentDraftMemory && AgentDraftMemory.isCasualGreeting(text)
+              && r.toolCalls.some((tc) => tc && ToolRegistry.isWrite(tc.name))) {
+              const greeting = String(r.content || '').trim() || '你好，管理员。塞西在线，今天想先处理哪一项工作？';
+              loading.innerHTML = App.markdown(greeting);
+              this.appendTrace(loading, [...trace, { t: 'info', label: '阻止无关写入', detail: '当前输入仅为问候，已忽略历史草案触发的写工具' }]);
+              await target.record('ai', greeting, { kind: 'text' });
+              return;
+            }
             r.toolCalls.forEach((tc) => trace.push({ t: 'tool', label: `选择工具 ${tc.name}`, detail: JSON.stringify(tc.arguments || {}).slice(0, 200) }));
             trace.push({ t: 'info', label: '处理工具调用', detail: '读工具直接执行（结果回传模型）· 写工具确认卡（保存才落库）' });
             const messages = [{ role: 'user', content: `${ctx}\n\n【用户输入】\n${text}` }];
             await this.handleToolCalls(r.toolCalls, loading, trace, messages, tools, settings, 1, target, system);
+            return;
+          }
+          if (!String(r.content || '').trim()) {
+            const emptyMessage = `> ⚠️ 模型返回了空响应（${r.finishReason || 'unknown'}）。系统没有执行任何操作，请重试；如持续出现，可提高“单次最大输出”或关闭模型的深度思考模式。`;
+            loading.innerHTML = App.markdown(emptyMessage);
+            this.appendTrace(loading, trace);
+            await target.record('ai', emptyMessage, { kind: 'text' });
             return;
           }
           // 兜底：模型未走原生 tool_calls，但可能输出 JSON 意图文本（不支持 tools 的模型）→ 转确认卡/草案卡
@@ -579,7 +742,7 @@ const Assistant = {
           }
           loading.innerHTML = App.markdown(r.content || '（无内容）');
           this.appendTrace(loading, trace);
-          await target.record('ai', r.content || '', { kind: 'text' });
+          await target.record('ai', r.content || '', this.messageMetadata(r.content || ''));
           return;
         }
         // 接口失败 → 降级快速路径（正则动作表），保证可用性
@@ -605,7 +768,7 @@ const Assistant = {
       ]);
       if (r.ok) {
         loading.innerHTML = App.markdown(r.content);
-        await target.record('ai', r.content, { kind: 'text' });
+        await target.record('ai', r.content, this.messageMetadata(r.content));
       } else {
         loading.className = 'msg error';
         loading.textContent = r.error || '请求失败';
@@ -646,7 +809,12 @@ const Assistant = {
       }
       const v = ToolRegistry.validate(name, tc.arguments || {});
       if (!v.ok) {
-        textParts.push(`> 「${name}」参数无效（${v.errors.join('；')}），已忽略。`);
+        const repair = buildToolValidationRepair(tc, name, v.errors);
+        assistantCalls.push(repair.assistantCall);
+        toolResults.push(repair.toolResult);
+        textParts.push(rounds < 4
+          ? repair.message
+          : `> 「${name}」参数仍不完整（${v.errors.join('；')}），自动补全未成功，请重新发送“保存刚才的计划”。`);
         if (trace) trace.push({ t: 'tool', label: `${name} 参数校验失败`, detail: v.errors.join('；') });
         continue;
       }
@@ -690,7 +858,8 @@ const Assistant = {
       toolResults.forEach((tr) => messages.push({ role: 'tool', tool_call_id: tr.tool_call_id, content: tr.output.slice(0, 6000) }));
       trace.push({ t: 'info', label: `回传工具结果（第 ${rounds} 轮）`, detail: `${toolResults.length} 个结果已反馈模型` });
       const t0 = Date.now();
-      const r = await window.api.ai.chatTools(messages, tools, { maxTokens: 1200, system });
+      const outputTokens = clampAgentNumber(settings && settings.agentMaxOutputTokens, DEFAULT_AGENT_OUTPUT_TOKENS, 1024, 32768);
+      const r = await window.api.ai.chatTools(messages, tools, { maxTokens: outputTokens, system });
       trace.push({ t: 'llm', label: `继续调用模型 ${(settings && settings.aiModel) || ''}`, detail: `${Date.now() - t0}ms` });
       if (r.ok) {
         if (Array.isArray(r.toolCalls) && r.toolCalls.length) {
@@ -701,7 +870,7 @@ const Assistant = {
         // 模型最终回复（普通内容）
         loading.innerHTML = App.markdown(r.content || '（无内容）');
         this.appendTrace(loading, trace || []);
-        await target.record('ai', r.content || '', { kind: 'text' });
+        await target.record('ai', r.content || '', this.messageMetadata(r.content || ''));
         target.scroll();
         return;
       }

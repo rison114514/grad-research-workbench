@@ -4,8 +4,10 @@ const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const { registerIpc } = require('./ipc');
 const petWindow = require('./pet-window');
+const { recoverMainWindow, quitAfterMainClosed } = require('./app-lifecycle');
 
 let mainWindow = null;
+let isQuitting = false;
 
 // Windows 透明窗口支持（桌面宠物悬浮球需要；enable-transparent-visuals 为透明必需，
 // 注意不要加 disable-gpu-compositing——部分 Win 环境强制软件合成会致透明窗口整窗不渲染）
@@ -19,12 +21,8 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    // 已有实例运行时再次启动 → 唤起主窗口（不新建进程，不重复创建宠物）
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-    }
+    // 正常情况唤起现有主窗口；若旧进程只剩悬浮球，则重建主窗口自恢复。
+    mainWindow = recoverMainWindow(mainWindow, createWindow);
   });
 }
 
@@ -56,7 +54,12 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // Windows 不采用 macOS 的“关窗不退应用”语义。悬浮球必须随主窗口关闭，
+    // 否则旧进程会继续持有单实例锁，下一次启动无法创建主窗口。
+    if (!isQuitting) quitAfterMainClosed(process.platform, petWindow, app);
   });
+
+  return mainWindow;
 }
 
 if (gotLock) {
@@ -71,12 +74,19 @@ if (gotLock) {
     } catch (e) { console.error('[pet] 恢复桌面宠物失败:', e); /* 恢复失败不影响启动 */ }
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      // macOS 可能只剩悬浮球窗口；不能用 getAllWindows().length 判断主窗口是否存在。
+      mainWindow = recoverMainWindow(mainWindow, createWindow);
     });
   });
 
   app.on('window-all-closed', () => {
     petWindow.destroyPetWindow();
     if (process.platform !== 'darwin') app.quit();
+  });
+
+  // 覆盖 Cmd+Q、系统退出、更新退出等不经过 mainWindow.closed 的路径。
+  app.on('before-quit', () => {
+    isQuitting = true;
+    petWindow.destroyPetWindow();
   });
 }

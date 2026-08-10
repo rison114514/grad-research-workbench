@@ -14,8 +14,8 @@ const http = require('http');
 const PROVIDERS = [
   {
     id: 'deepseek', name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat',
-    desc: '性价比高，推理能力出色，适合中文场景'
+    baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-v4-flash',
+    desc: 'V4 · 1M 上下文，适合中文与 Agent 场景'
   },
   {
     id: 'openai', name: 'OpenAI',
@@ -49,7 +49,7 @@ function getProvider(id) {
 }
 
 function resolvedSettings(settings = {}) {
-  let { aiProvider, aiBaseUrl, aiModel, aiApiKey } = settings;
+  let { aiProvider, aiBaseUrl, aiModel, aiApiKey, aiThinkingMode } = settings;
   if (aiProvider && aiProvider !== 'custom') {
     const p = getProvider(aiProvider);
     if (p) {
@@ -57,12 +57,22 @@ function resolvedSettings(settings = {}) {
       aiModel = aiModel || p.model;
     }
   }
-  return { aiBaseUrl: (aiBaseUrl || '').replace(/\/+$/, ''), aiModel: aiModel || 'gpt-4o-mini', aiApiKey: aiApiKey || '' };
+  return {
+    aiBaseUrl: (aiBaseUrl || '').replace(/\/+$/, ''), aiModel: aiModel || 'gpt-4o-mini',
+    aiApiKey: aiApiKey || '', aiThinkingMode: ['enabled', 'disabled'].includes(aiThinkingMode) ? aiThinkingMode : 'disabled'
+  };
 }
 
 function isConfigured(settings) {
   const s = resolvedSettings(settings);
   return !!(s.aiBaseUrl && s.aiModel && s.aiApiKey);
+}
+
+function applyModelSpecificOptions(payload, settings) {
+  if (/api\.deepseek\.com/i.test(settings.aiBaseUrl) || /^deepseek-v4-/i.test(settings.aiModel)) {
+    payload.thinking = { type: settings.aiThinkingMode };
+  }
+  return payload;
 }
 
 /* ---------------- HTTP 请求 ---------------- */
@@ -163,6 +173,9 @@ async function chatWithTools(messages, tools, settings, { temperature = 0.7, max
   const finalMessages = system ? [{ role: 'system', content: system }, ...messages] : messages;
   const payload = { model: s.aiModel, messages: finalMessages, temperature, max_tokens: maxTokens };
   if (Array.isArray(tools) && tools.length) payload.tools = tools;
+  // DeepSeek V4 默认会开启 thinking；Agent 工具路由默认关闭，避免推理耗尽输出预算后 content 为空。
+  // 用户仍可在设置页显式开启。其他 OpenAI 兼容服务不发送该厂商专属字段。
+  applyModelSpecificOptions(payload, s);
   try {
     const res = await postJson(`${s.aiBaseUrl}/chat/completions`, payload, s.aiApiKey);
     if (res.status !== 200) {
@@ -318,6 +331,6 @@ function shift(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return
 function fmt(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 
 module.exports = {
-  PROVIDERS, getProvider, chat, chatWithTools, parseChatResponse, testConnection,
+  PROVIDERS, getProvider, chat, chatWithTools, parseChatResponse, testConnection, resolvedSettings, applyModelSpecificOptions,
   summarizeLiterature, polishReport, splitTask, parseNaturalTask, isConfigured
 };

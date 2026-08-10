@@ -7,7 +7,16 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; user-select: none; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: rgba(0, 0, 0, 0) !important;
+  background-color: rgba(0, 0, 0, 0) !important;
+  background-image: none !important;
+  border: 0 !important; border-radius: 0 !important;
+  outline: 0 !important; box-shadow: none !important;
+  user-select: none;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
 body { -webkit-user-select: none; }
 .hidden { display: none !important; }
 
@@ -15,13 +24,23 @@ body { -webkit-user-select: none; }
 .pet-ball {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  background: transparent; /* 显式透明（窗口透明的前提，防继承/重绘白底） */
+  background: rgba(0, 0, 0, 0) !important;
   /* 手动 JS 拖动（-webkit-app-region:drag 在透明窗口会吞点击且 macOS 易卡死） */
   cursor: grab;
-  animation: petBallFloat 4.2s ease-in-out infinite;
-  /* 注意：不使用 preserve-3d/perspective——CSS 3D 变换会在透明窗口提升不透明合成层（白底 bug 根因） */
+  /* 根容器绝不做 transform/animation，避免整个透明窗口被提升为不透明合成层。 */
 }
 .pet-ball.dragging { cursor: grabbing; }
+
+.pet-ball-visual {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0);
+  animation: petBallFloat 4.2s ease-in-out infinite;
+  pointer-events: none;
+}
 
 /* 塞西头像（2D 悬浮：呼吸 + 微倾，纯平面变换保证透明窗口合成） */
 .pet-ball-inner {

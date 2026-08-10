@@ -18,11 +18,23 @@ const Settings = {
     document.getElementById('setBaseUrl').value = s.aiBaseUrl || '';
     document.getElementById('setModel').value = s.aiModel || '';
     document.getElementById('setApiKey').value = s.aiApiKey || '';
+    document.getElementById('setAgentContextTokens').value = s.agentContextTokens || 32000;
+    document.getElementById('setAgentOutputTokens').value = s.agentMaxOutputTokens || 4096;
+    document.getElementById('setAgentThinkingMode').value = s.aiThinkingMode || 'disabled';
     document.getElementById('setGhToken').value = s.githubToken || '';
     document.getElementById('setZoteroType').value = s.zoteroLibraryType || 'users';
     document.getElementById('setZoteroLibraryId').value = s.zoteroLibraryId || '';
     document.getElementById('setZoteroApiKey').value = s.zoteroApiKey || '';
     document.getElementById('setZoteroCollection').value = s.zoteroCollectionKey || '';
+    const profile = s.agentProfile || {};
+    document.getElementById('setAgentProfileEnabled').checked = !!profile.enabled;
+    document.getElementById('setAgentName').value = profile.preferredName || '';
+    document.getElementById('setAgentRole').value = profile.role || '';
+    document.getElementById('setAgentWake').value = profile.wakeTime || '';
+    document.getElementById('setAgentSleep').value = profile.sleepTime || '';
+    document.getElementById('setAgentWorkHours').value = profile.workHours || '';
+    document.getElementById('setAgentFocus').value = profile.focusPeriod || '';
+    document.getElementById('setAgentNotes').value = profile.notes || '';
 
     const dir = await window.api.store.getDataDir();
     document.getElementById('setDataDir').textContent = dir;
@@ -90,11 +102,16 @@ const Settings = {
 
   async saveAI() {
     const provider = document.getElementById('setProvider').value;
+    const contextTokens = Math.max(4000, Math.min(800000, Number(document.getElementById('setAgentContextTokens').value) || 32000));
+    const outputTokens = Math.max(1024, Math.min(32768, Number(document.getElementById('setAgentOutputTokens').value) || 4096));
     await window.api.store.saveSettings({
       aiProvider: provider === 'custom' ? 'custom' : provider,
       aiBaseUrl: document.getElementById('setBaseUrl').value.trim(),
       aiModel: document.getElementById('setModel').value.trim(),
-      aiApiKey: document.getElementById('setApiKey').value.trim()
+      aiApiKey: document.getElementById('setApiKey').value.trim(),
+      agentContextTokens: Math.round(contextTokens),
+      agentMaxOutputTokens: Math.round(outputTokens),
+      aiThinkingMode: document.getElementById('setAgentThinkingMode').value === 'enabled' ? 'enabled' : 'disabled'
     });
     App.state.settings = await window.api.store.getSettings();
     await App.updateAiStatus();
@@ -119,6 +136,22 @@ const Settings = {
     await window.api.store.saveSettings({ githubToken: document.getElementById('setGhToken').value.trim() });
     App.state.settings = await window.api.store.getSettings();
     App.toast('GitHub 配置已保存', 'ok');
+  },
+
+  async saveAgentProfile() {
+    const agentProfile = {
+      enabled: document.getElementById('setAgentProfileEnabled').checked,
+      preferredName: document.getElementById('setAgentName').value.trim(),
+      role: document.getElementById('setAgentRole').value.trim(),
+      wakeTime: document.getElementById('setAgentWake').value,
+      sleepTime: document.getElementById('setAgentSleep').value,
+      workHours: document.getElementById('setAgentWorkHours').value.trim(),
+      focusPeriod: document.getElementById('setAgentFocus').value.trim(),
+      notes: document.getElementById('setAgentNotes').value.trim().slice(0, 240)
+    };
+    await window.api.store.saveSettings({ agentProfile });
+    App.state.settings = await window.api.store.getSettings();
+    App.toast(agentProfile.enabled ? 'Agent 个性化资料已启用' : '资料已保存，当前未授权给 Agent', 'ok');
   },
 
   zoteroConfig() {
@@ -281,6 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setSave').addEventListener('click', () => Settings.saveAI());
   document.getElementById('setTest').addEventListener('click', () => Settings.testAI());
   document.getElementById('setGhSave').addEventListener('click', () => Settings.saveGh());
+  document.getElementById('setAgentProfileSave').addEventListener('click', () => Settings.saveAgentProfile());
   document.getElementById('setZoteroTest').addEventListener('click', () => Settings.testZotero());
   document.getElementById('setZoteroSync').addEventListener('click', () => Settings.syncZotero());
   document.getElementById('setOpenDir').addEventListener('click', () => window.api.store.openDataDir());

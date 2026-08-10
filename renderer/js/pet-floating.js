@@ -75,7 +75,7 @@ const PetFloat = {
   async recordMsg(role, content, extra = {}) {
     const msg = {
       sessionId: this.state.sessionId, role,
-      kind: 'text', content: String(content || '').slice(0, 4000),
+      kind: 'text', content: String(content || '').slice(0, 32000),
       createdAt: new Date().toISOString(), ...extra
     };
     try {
@@ -97,6 +97,10 @@ const PetFloat = {
   /** 回放单条历史（与智能助手 renderRecorded 一致：草案未保存标注） */
   renderRecorded(m) {
     if (m.role === 'user') { this.appendMsg('user', m.content); return; }
+    if (m.kind === 'structured_draft' && !m.confirmed && m.draftStatus !== 'discarded') {
+      this.appendMsg('ai', `${m.content}\n\n> ◇ 已保留为结构化草案，可回复“保存它”生成确认卡。`);
+      return;
+    }
     if (m.kind === 'draft' && !m.confirmed) {
       this.appendMsg('ai', `${m.content}\n\n> ⚠️ 该草案未保存（历史记录）`);
       return;

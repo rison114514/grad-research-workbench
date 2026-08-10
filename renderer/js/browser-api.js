@@ -10,7 +10,7 @@
   if (window.api && window.api.store) return;
 
   const STORAGE_KEY = 'research-workbench.browser-preview.v2';
-  const DOMAINS = ['tasks', 'projects', 'literature', 'inspirations', 'reports', 'githubSubs', 'agentTasks', 'activity', 'settings', 'timeLogs', 'dailyPlans', 'fitnessPlans', 'fitnessLogs', 'assistantSessions', 'assistantMessages', 'litCollections', 'litRelations'];
+  const DOMAINS = ['tasks', 'projects', 'literature', 'inspirations', 'reports', 'githubSubs', 'agentTasks', 'activity', 'settings', 'timeLogs', 'dailyPlans', 'dailyTemplates', 'weeklyTemplates', 'fitnessPlans', 'fitnessLogs', 'assistantSessions', 'assistantMessages', 'litCollections', 'litRelations'];
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const iso = () => new Date().toISOString();
   const day = (offset = 0) => {
@@ -48,6 +48,8 @@
       agentTasks: [],
       timeLogs: [],
       dailyPlans: [],
+      dailyTemplates: [],
+      weeklyTemplates: [],
       fitnessPlans: [],
       fitnessLogs: [],
       assistantSessions: [],
@@ -173,7 +175,7 @@
   }
 
   const providers = [
-    { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', desc: '中文与推理任务' },
+    { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-v4-flash', desc: 'V4 · 1M 上下文，中文与 Agent 任务' },
     { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', desc: '通用能力与工具生态' },
     { id: 'qwen', name: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', desc: '中文长文本任务' },
     { id: 'ollama', name: 'Ollama 本地', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:7b', desc: '桌面版离线模型' }

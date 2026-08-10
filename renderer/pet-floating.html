@@ -4,20 +4,25 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'">
   <title>塞西 · 悬浮球</title>
+  <!-- 透明首帧必须内联：避免外部 CSS 尚未解析时短暂绘制默认白底。 -->
+  <style>html,body{background:rgba(0,0,0,0)!important;background-image:none!important}</style>
   <link rel="stylesheet" href="css/pet-floating.css">
 </head>
 <body>
   <!-- 悬浮球态（系统级悬浮，可拖动） -->
   <div id="petBall" class="pet-ball" title="与塞西聊天（拖拽移动 · 双击回到工作台）">
-    <div class="pet-orbit pet-orbit-1" aria-hidden="true"></div>
-    <div class="pet-orbit pet-orbit-2" aria-hidden="true"></div>
-    <div class="pet-orbit pet-orbit-3" aria-hidden="true"></div>
-    <div class="pet-ball-inner">
-      <img class="pet-ball-avatar" id="petBallAvatar" src="assets/pet/xaihi-half.png" alt="塞西" draggable="false">
+    <!-- 动画只作用于紧凑视觉层，不能 transform 整个窗口 surface。 -->
+    <div class="pet-ball-visual">
+      <div class="pet-orbit pet-orbit-1" aria-hidden="true"></div>
+      <div class="pet-orbit pet-orbit-2" aria-hidden="true"></div>
+      <div class="pet-orbit pet-orbit-3" aria-hidden="true"></div>
+      <div class="pet-ball-inner">
+        <img class="pet-ball-avatar" id="petBallAvatar" src="assets/pet/xaihi-half.png" alt="塞西" draggable="false">
+      </div>
+      <div class="pet-ball-glow" aria-hidden="true"></div>
+      <div class="pet-ball-dot" aria-hidden="true"></div>
     </div>
     <div class="pet-ball-hit" id="petBallHit" title="点击与塞西聊天"></div>
-    <div class="pet-ball-glow" aria-hidden="true"></div>
-    <div class="pet-ball-dot" aria-hidden="true"></div>
   </div>
 
   <!-- 聊天态（点击悬浮球展开，右下角锚定） -->
@@ -42,6 +47,7 @@
   <script src="js/app.js"></script>
   <script src="js/assistant-actions.js"></script>
   <script src="js/agent/tool-registry.js"></script>
+  <script src="js/agent/draft-memory.js"></script>
   <script src="js/assistant.js"></script>
   <script src="js/pet-floating.js"></script>
 </body>

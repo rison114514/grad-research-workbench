@@ -876,6 +876,7 @@ ${doc}`;
       case 'addTimeLog': return `记录时间 \`${CATEGORY_LABEL[params.category] || params.category || '?'}\` ${formatMinutes(params.minutes)}`;
       case 'addFitnessLog': return `健身打卡 \`${FITNESS_TYPE_LABEL[params.type] || params.type || '?'}\` ${formatMinutes(params.durationMin)}`;
       case 'addFitnessPlan': return `健身计划「${params.name || '?'}」每周 ${params.weeklyGoal || '?'} 次 · 每次约 ${params.durationGoal || '?'} 分钟${Array.isArray(params.schedule) && params.schedule.length ? '（含一周安排）' : ''}`;
+      case 'createDailyTemplate': return `每日模板「${params.name || '?'}」共 ${Array.isArray(params.items) ? params.items.length : '?'} 个时间块`;
       case 'updateDailyPlan': return `计划项${params.delete ? '删除' : '修改'}${params.matchTitle ? `「${params.matchTitle}」` : ''}${params.date ? `（${formatDate(params.date)}）` : ''}${!params.delete && params.startTime ? ` → ${params.startTime}` : ''}`;
       case 'updateTimeLog': return `时间记录${params.delete ? '删除' : '修改'}${params.matchCategory ? ` \`${CATEGORY_LABEL[params.matchCategory] || params.matchCategory}\`` : ''}${!params.delete && params.minutes ? ` → ${formatMinutes(params.minutes)}` : ''}`;
       case 'generateReport': return `生成${params.type === 'weekly' ? '周报' : '日报'}（${params.date || '今天'}）${params.polish ? ' · AI 润色' : ''}`;

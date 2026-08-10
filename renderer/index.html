@@ -412,12 +412,48 @@
             <input class="input" id="setModel" placeholder="deepseek-chat">
             <label class="field-label">API Key</label>
             <input class="input" type="password" id="setApiKey" placeholder="sk-...">
+            <div class="row2">
+              <div>
+                <label class="field-label">Agent 历史上下文预算（约 tokens）</label>
+                <input class="input" type="number" id="setAgentContextTokens" min="4000" max="800000" step="1000" list="agentContextPresets" value="32000">
+                <datalist id="agentContextPresets"><option value="8000"><option value="16000"><option value="32000"><option value="64000"><option value="128000"><option value="256000"><option value="512000"><option value="800000"></datalist>
+              </div>
+              <div>
+                <label class="field-label">单次最大输出（tokens）</label>
+                <input class="input" type="number" id="setAgentOutputTokens" min="1024" max="32768" step="512" value="4096">
+              </div>
+            </div>
+            <label class="field-label">DeepSeek Agent 推理模式</label>
+            <select class="input" id="setAgentThinkingMode">
+              <option value="disabled">关闭（推荐，工具调用更稳定）</option>
+              <option value="enabled">开启（复杂推理，消耗更多输出预算）</option>
+            </select>
             <div class="row">
               <button class="btn btn-primary" id="setSave">保存配置</button>
               <button class="btn" id="setTest">测试连接</button>
               <span class="test-result" id="setTestResult"></span>
             </div>
-            <div class="hint">支持 OpenAI 兼容接口：DeepSeek / OpenAI / 通义千问 / 智谱 / Kimi / Ollama 本地。未配置时自动使用本地模板。</div>
+            <div class="hint">支持 OpenAI 兼容接口。默认保留约 32K tokens 历史；可按模型能力调整，数值越大，请求耗时与费用可能越高。DeepSeek V4 可设置更高预算，但还需为系统提示、工具定义和模型输出预留空间。</div>
+          </div>
+          <div class="settings-card">
+            <div class="chart-title">Agent 个性化资料</div>
+            <label class="check"><input type="checkbox" id="setAgentProfileEnabled"> 允许 Agent 只读使用以下资料</label>
+            <div class="row2" style="margin-top:10px">
+              <div><label class="field-label">希望如何称呼你</label><input class="input" id="setAgentName" placeholder="例如：管理员、泊舟"></div>
+              <div><label class="field-label">身份 / 主要角色</label><input class="input" id="setAgentRole" placeholder="例如：研究生、开发者"></div>
+            </div>
+            <div class="row2">
+              <div><label class="field-label">通常起床</label><input class="input" type="time" id="setAgentWake"></div>
+              <div><label class="field-label">通常入睡</label><input class="input" type="time" id="setAgentSleep"></div>
+            </div>
+            <label class="field-label">常规工作 / 学习时段</label>
+            <input class="input" id="setAgentWorkHours" placeholder="例如：工作日 09:00–18:00">
+            <label class="field-label">高效时段</label>
+            <input class="input" id="setAgentFocus" placeholder="例如：上午 09:00–11:30">
+            <label class="field-label">偏好与约束</label>
+            <textarea class="input" id="setAgentNotes" rows="3" maxlength="240" placeholder="例如：午后需要休息；晚上只安排轻量任务"></textarea>
+            <button class="btn btn-primary" id="setAgentProfileSave">保存个性化资料</button>
+            <div class="hint">仅将这里主动填写的字段加入 Agent 上下文；API Key、GitHub Token、Zotero 凭据及本地路径不会提供给模型。</div>
           </div>
           <div class="settings-card">
             <div class="chart-title">GitHub 配置</div>
@@ -963,6 +999,7 @@
   <script src="js/fitness.js"></script>
   <script src="js/assistant-actions.js"></script>
   <script src="js/agent/tool-registry.js"></script>
+  <script src="js/agent/draft-memory.js"></script>
   <script src="js/assistant.js"></script>
   <script src="js/pet.js"></script>
   <script src="js/init.js"></script>

@@ -112,7 +112,7 @@ const TOOLS = [
   },
   {
     name: 'createDailyTemplate',
-    description: '创建【每日模板】（周期性固定安排）。当用户说「每天/每日 9点上班」「周内 2点学习」「每天晚饭后健身」时使用——这是规则，不是具体某一天。模板保存后可应用到任意日期；frequency: everyday（每天）/ weekdays（周一至周五）/ weekend（周六日）/ custom（自定义 weekdays 数组）。注意：「每天九点上班」这种【周期安排】必用本工具，绝不要用 addDailyPlanMulti 展开到多天（会重复创建）。',
+    description: '创建【每日模板】（周期性固定安排）。当用户说「每天/每日 9点上班」「周内 2点学习」「每天晚饭后健身」时使用——这是规则，不是具体某一天。模板保存后可应用到任意日期；frequency: everyday（每天）/ weekdays（周一至周五）/ weekend（周六日）/ custom（自定义 weekdays 数组）。注意：「每天九点上班」这种【周期安排】必用本工具，绝不要用 addDailyPlanMulti 展开到多天（会重复创建）。若用户说「保存刚才那份/就按这个」，必须从对话历史的上一轮详细计划提取 name 和全部 items（每项包含时间、标题、类型及可选备注），严禁空参数调用。',
     parameters: {
       type: 'object',
       required: ['name', 'items'],

@@ -22,7 +22,35 @@ rm -rf "dist/科研工作台-darwin-arm64"
   --ignore='^/dist($|/)' --ignore='^/build($|/)' --ignore='^/preview-server\.js$' --ignore='^/scripts($|/)' --ignore='^/tests($|/)'
 
 APP="dist/科研工作台-darwin-arm64/科研工作台.app"
-[ -d "$APP" ] || { echo "打包失败：未找到 $APP"; exit 1; }
+if [ ! -d "$APP" ]; then
+  # electron-packager 17 在 Node 24 上可能停在 Electron 模板解压阶段并错误返回 0。
+  # 同版本旧包的 Electron/Framework 骨架已通过签名验证；复制骨架后完整替换业务源码，
+  # 再整包重签，比临时手工重建 Helper/Framework 安全且可复验。
+  FALLBACK_APP="dist/${APPNAME}.app"
+  [ -d "$FALLBACK_APP" ] || {
+    echo "打包失败：electron-packager 未生成 $APP，且没有可用于增量重组的 $FALLBACK_APP"
+    exit 1
+  }
+  echo "    ⚠ electron-packager 未产生目标，使用已验证的同版本应用骨架增量重组"
+  mkdir -p "dist/科研工作台-darwin-arm64"
+  ditto "$FALLBACK_APP" "$APP"
+
+  APP_RES="$APP/Contents/Resources/app"
+  [ -d "$APP_RES/node_modules" ] || { echo "增量重组失败：旧包缺少生产依赖"; exit 1; }
+  rm -rf "$APP_RES/main" "$APP_RES/renderer"
+  ditto main "$APP_RES/main"
+  ditto renderer "$APP_RES/renderer"
+  cp preload.js package.json README.md "$APP_RES/"
+
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.rison.research-workbench" "$APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
+
+  # 必须证明关键修复已经进入包内，防止只重新压缩旧应用。
+  cmp -s main/pet-window.js "$APP_RES/main/pet-window.js" || { echo "增量重组失败：pet-window.js 未同步"; exit 1; }
+  cmp -s main/app-lifecycle.js "$APP_RES/main/app-lifecycle.js" || { echo "增量重组失败：app-lifecycle.js 未同步"; exit 1; }
+  cmp -s renderer/css/pet-floating.css "$APP_RES/renderer/css/pet-floating.css" || { echo "增量重组失败：pet-floating.css 未同步"; exit 1; }
+fi
 
 echo "== [2/6] 整包 ad-hoc 重签（修复 electron-packager 无效签名）=="
 codesign --force --deep --sign - --timestamp=none "$APP"

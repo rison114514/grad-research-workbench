@@ -35,8 +35,12 @@ ditto -x -k "$ZIP_CACHE" "$WIN_DIR/"
 
 echo "== [3/6] 安装生产依赖（--omit=dev，仅运行时依赖）=="
 DEPS_DIR=$(mktemp -d)
-cp package.json "$DEPS_DIR/"
-( cd "$DEPS_DIR" && npm install --omit=dev --no-audit --no-fund --registry=https://registry.npmmirror.com >/dev/null 2>&1 )
+cp package.json package-lock.json "$DEPS_DIR/"
+# 锁文件 + 本机缓存优先，保证可重复且避免镜像波动；缓存未命中时才联网补齐。
+if ! ( cd "$DEPS_DIR" && npm ci --omit=dev --offline --no-audit --no-fund ); then
+  echo "    离线缓存未命中，回退到 npmmirror 安装 ..."
+  ( cd "$DEPS_DIR" && npm ci --omit=dev --no-audit --no-fund --registry=https://registry.npmmirror.com )
+fi
 [ -d "$DEPS_DIR/node_modules/pdf-parse" ] || { echo "错误：生产依赖安装失败（缺 pdf-parse）"; exit 1; }
 
 echo "== [4/6] 组装应用（源码 + 生产依赖 + 重命名 exe）=="

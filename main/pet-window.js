@@ -15,9 +15,25 @@ const BALL_W = 132;
 const BALL_H = 132;
 const CHAT_W = 340;
 const CHAT_H = 520;
+const TRANSPARENT_COLOR = 'rgba(0, 0, 0, 0)';
 
 let petWindow = null;
 let mode = 'ball';
+
+/**
+ * Electron 的 transparent:true 只开启透明能力，Windows 11 的 DWM 仍可能为
+ * 无边框窗口附加 auto backdrop / accent border。窗口首次绘制和 setBounds 后
+ * 都重新清空这些原生材质，避免整个 132x132 surface 被补成白色圆角矩形。
+ */
+function enforceTransparentSurface(win, platform = process.platform) {
+  if (!win || win.isDestroyed()) return;
+  win.setBackgroundColor(TRANSPARENT_COLOR);
+  win.setHasShadow(false);
+  if (platform === 'win32') {
+    if (typeof win.setBackgroundMaterial === 'function') win.setBackgroundMaterial('none');
+    if (typeof win.setAccentColor === 'function') win.setAccentColor(false);
+  }
+}
 
 function posPath() {
   return path.join(app.getPath('userData'), 'pet-pos.json');
@@ -54,9 +70,10 @@ function createPetWindow() {
     width: BALL_W,
     height: BALL_H,
     x, y,
+    show: false,
     frame: false,
     transparent: true,
-    backgroundColor: '#00000000', // 关键：透明窗口必须显式透明底色，否则部分平台/版本默认白底
+    backgroundColor: TRANSPARENT_COLOR,
     resizable: false,
     hasShadow: false,
     alwaysOnTop: true,
@@ -68,8 +85,25 @@ function createPetWindow() {
       sandbox: false
     }
   });
+  enforceTransparentSurface(petWindow);
   petWindow.setAlwaysOnTop(true);
-  petWindow.loadFile(path.join(__dirname, '..', 'renderer', 'pet-floating.html'));
+
+  // 避免 CSS 尚未加载时显示 Chromium 默认白色首帧；首个完整透明帧准备好后再展示。
+  const reveal = () => {
+    if (!petWindow || petWindow.isDestroyed()) return;
+    enforceTransparentSurface(petWindow);
+    if (!petWindow.isVisible()) {
+      if (typeof petWindow.showInactive === 'function') petWindow.showInactive();
+      else petWindow.show();
+    }
+  };
+  petWindow.once('ready-to-show', reveal);
+  petWindow.webContents.once('did-finish-load', () => {
+    enforceTransparentSurface(petWindow);
+  });
+  petWindow.loadFile(path.join(__dirname, '..', 'renderer', 'pet-floating.html'))
+    .then(reveal)
+    .catch((error) => console.error('[pet] 悬浮球页面加载失败:', error));
   let _moveSaveTimer = null;
   petWindow.on('moved', () => {
     if (!petWindow) return;
@@ -105,6 +139,8 @@ function setMode(next) {
     if (mode === 'chat' && prev === 'ball') { nx = x + BALL_W - CHAT_W; ny = y + BALL_H - CHAT_H; }
     else if (mode === 'ball' && prev === 'chat') { nx = x + CHAT_W - BALL_W; ny = y + CHAT_H - BALL_H; }
     petWindow.setBounds({ x: nx, y: ny, width: w, height: h });
+    // Windows 在改变无边框窗口尺寸后可能重新应用 DWM backdrop。
+    enforceTransparentSurface(petWindow);
     if (!petWindow.isDestroyed()) petWindow.webContents.send('pet:mode-changed', mode);
   } catch (e) { /* 窗口销毁等异常不阻断 */ }
 }
@@ -142,6 +178,8 @@ function focusMain() {
 
 module.exports = {
   BALL_W, BALL_H, CHAT_W, CHAT_H,
+  TRANSPARENT_COLOR,
+  enforceTransparentSurface,
   createPetWindow,
   destroyPetWindow,
   setMode,

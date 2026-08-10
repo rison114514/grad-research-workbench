@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const path = require('path');
 
 /* ---------------- ai-service parseChatResponse ---------------- */
-const { parseChatResponse } = require(path.join(__dirname, '..', 'main', 'ai-service.js'));
+const { parseChatResponse, resolvedSettings, applyModelSpecificOptions } = require(path.join(__dirname, '..', 'main', 'ai-service.js'));
 
 test('parseChatResponse：普通回复', () => {
   const r = parseChatResponse({ choices: [{ message: { content: '好的' }, finish_reason: 'stop' }] });
@@ -36,6 +36,18 @@ test('parseChatResponse：空响应容错', () => {
   const r = parseChatResponse({});
   assert.equal(r.content, '');
   assert.equal(r.toolCalls.length, 0);
+});
+
+test('DeepSeek Agent：默认关闭 thinking，用户可显式开启', () => {
+  const defaults = resolvedSettings({ aiProvider: 'deepseek', aiApiKey: 'x' });
+  assert.equal(defaults.aiModel, 'deepseek-v4-flash');
+  assert.equal(defaults.aiThinkingMode, 'disabled');
+  const p1 = applyModelSpecificOptions({ model: defaults.aiModel }, defaults);
+  assert.deepEqual(p1.thinking, { type: 'disabled' });
+  const enabled = resolvedSettings({ aiBaseUrl: 'https://api.deepseek.com/v1', aiModel: 'deepseek-v4-pro', aiApiKey: 'x', aiThinkingMode: 'enabled' });
+  assert.deepEqual(applyModelSpecificOptions({}, enabled).thinking, { type: 'enabled' });
+  const openai = resolvedSettings({ aiBaseUrl: 'https://api.openai.com/v1', aiModel: 'gpt-5', aiApiKey: 'x' });
+  assert.equal(applyModelSpecificOptions({}, openai).thinking, undefined, '其他兼容服务不发送 DeepSeek 专属字段');
 });
 
 /* ---------------- ToolRegistry ---------------- */
@@ -94,6 +106,9 @@ test('ToolRegistry：schema 校验（必填/enum/类型收敛）', () => {
   assert.equal(v2.params.minutes, 90, '数字类型收敛');
   const v3 = ToolRegistry.validate('addDailyPlanMulti', {});
   assert.equal(v3.ok, false, 'items 必填');
+  const daily = ToolRegistry.validate('createDailyTemplate', {});
+  assert.equal(daily.ok, false, '每日模板的 name/items 必须保持严格校验');
+  assert.ok(daily.errors.some((e) => e.includes('name')) && daily.errors.some((e) => e.includes('items')));
   const v4 = ToolRegistry.validate('unknownTool', {});
   assert.equal(v4.ok, false);
 });
@@ -126,7 +141,19 @@ function loadAssistant() {
   if (shapeSrc && teachRe && fnSrc) {
     parseIntentJson = eval('(function(){ ' + shapeSrc[0] + '\nconst INTENT_TEACHING_RE = ' + teachRe[1] + ';\n' + fnSrc[0] + '\nreturn parseIntentJson; })()');
   }
-  return { prompt: pm ? pm[1] : '', parseIntentJson, src };
+  const historyStart = src.indexOf('function formatHistoryForContext');
+  const historyEnd = src.indexOf('/** 把已知工具的参数校验失败', historyStart);
+  const historySource = src.slice(historyStart, historyEnd);
+  const formatHistoryForContext = eval(`(function(){
+    function truncate(s, n) { s = String(s || ''); return s.length > n ? s.slice(0, n) + '…' : s; }
+    ${historySource}
+    return formatHistoryForContext;
+  })()`);
+  const repairStart = src.indexOf('function buildToolValidationRepair');
+  const repairEnd = src.indexOf('/* Agent 全局人格', repairStart);
+  const repairSource = src.slice(repairStart, repairEnd);
+  const buildToolValidationRepair = eval(`(function(){ ${repairSource}; return buildToolValidationRepair; })()`);
+  return { prompt: pm ? pm[1] : '', parseIntentJson, formatHistoryForContext, buildToolValidationRepair, src };
 }
 
 test('TOOLS_SYSTEM_PROMPT：铁律防 JSON 裸显（禁止 JSON/代码块/伪工具）', () => {
@@ -137,6 +164,39 @@ test('TOOLS_SYSTEM_PROMPT：铁律防 JSON 裸显（禁止 JSON/代码块/伪工
   assert.ok(prompt.includes('原生 tool_calls'), '工具调用唯一通道');
   assert.ok(prompt.includes('绝不声称'), '不得自称已落库');
   assert.ok(prompt.includes('不支持原生工具调用'), '无工具环境用自然语言');
+  assert.ok(prompt.includes('承接上一轮草案') && prompt.includes('由你保存'), '明确支持跨轮确认保存');
+});
+
+test('跨轮上下文：上一轮详细计划不会再被截断为 180 字', () => {
+  const { formatHistoryForContext } = loadAssistant();
+  const detailedPlan = `每日计划草案\n${'07:00–07:30 起床洗漱\n'.repeat(20)}22:00 断网熄灯`;
+  const text = formatHistoryForContext([
+    { role: 'assistant', content: detailedPlan },
+    { role: 'user', content: '可以，由你来保存' }
+  ]);
+  assert.ok(text.includes('22:00 断网熄灯'), '保留上一轮计划尾部条目');
+  assert.ok(text.includes('可以，由你来保存'), '保留当前确认指令');
+});
+
+test('上下文预算：默认提升至 32K，允许 4K–800K 且不再限制 12 条', () => {
+  const { src } = loadAssistant();
+  assert.ok(src.includes('DEFAULT_AGENT_CONTEXT_TOKENS = 32000'));
+  assert.ok(src.includes('800000'));
+  assert.ok(!src.includes('out.length >= 12'));
+  assert.ok(!src.includes('truncate(m.content, 180)'));
+});
+
+test('无效工具参数：构造 role=tool 反馈供模型补参重试', () => {
+  const { buildToolValidationRepair } = loadAssistant();
+  const repair = buildToolValidationRepair(
+    { id: 'call_empty', arguments: {} },
+    'createDailyTemplate',
+    ['缺少必填参数 name', '缺少必填参数 items']
+  );
+  assert.equal(repair.assistantCall.id, 'call_empty');
+  assert.equal(repair.toolResult.tool_call_id, 'call_empty');
+  assert.ok(repair.toolResult.output.includes('上一轮完整草案'));
+  assert.ok(repair.toolResult.output.includes('不得再次提交空参数'));
 });
 
 test('旧 INTENT_SYSTEM_PROMPT（只输出 JSON 指令）已删除，避免模型被训练成输出 JSON 文本', () => {
