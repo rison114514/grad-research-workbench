@@ -534,14 +534,18 @@ const Assistant = {
     if (!text.trim()) return;
     if (this._isSending) return; // 防重入：避免快速连击/快速重入导致栈溢出
     this._isSending = true;
-    target = target || this.defaultTarget();
-    target.renderMessage('user', text);
-    await target.record('user', text);
-    const loading = target.renderMessage('ai', '思考中…');
-    loading.innerHTML = `<span class="spinner"></span>处理中…`;
-    const scope = await this.resolveScope(target); // 目标会话上下文（宠物=pet-chat；缺省=主抽屉）
-
+    let loading = null;
+    let scope = null;
     try {
+      // 初始化也纳入 try：若 renderMessage/record/resolveScope 抛错，finally 仍会解锁 _isSending
+      //（否则锁永不释放 → 之后无法再对话）
+      target = target || this.defaultTarget();
+      target.renderMessage('user', text);
+      await target.record('user', text);
+      loading = target.renderMessage('ai', '思考中…');
+      loading.innerHTML = `<span class="spinner"></span>处理中…`;
+      scope = await this.resolveScope(target); // 目标会话上下文（宠物=pet-chat；缺省=主抽屉）
+
       const settings = await window.api.store.getSettings();
       const aiReady = !!(settings.aiBaseUrl && settings.aiApiKey && settings.aiModel);
 
@@ -609,13 +613,17 @@ const Assistant = {
       }
     } catch (err) {
       console.error('[assistant] send error:', err);
-      loading.className = 'msg error';
-      loading.textContent = (err && err.message) ? err.message : String(err);
+      if (loading) {
+        loading.className = 'msg error';
+        loading.textContent = (err && err.message) ? err.message : String(err);
+      }
       App.toast(`操作失败：${(err && err.message) ? err.message : '未知错误'}`, 'error');
-      await target.record('ai', `执行出错：${(err && err.message) || err}`, { kind: 'text' });
+      if (target && typeof target.record === 'function') {
+        await target.record('ai', `执行出错：${(err && err.message) || err}`, { kind: 'text' });
+      }
     } finally { this._isSending = false; } // 任何路径都解锁（含异常）
-    target.scroll();
-    this.maybeSummarize(scope); // 目标会话超预算时滚动压缩（主抽屉与桌面宠物一致）
+    if (target && typeof target.scroll === 'function') target.scroll();
+    if (scope) this.maybeSummarize(scope); // 目标会话超预算时滚动压缩（主抽屉与桌面宠物一致）
   },
 
   /** AgentLoop：处理模型返回的工具调用（读直接执行且结果回传多轮；写生成确认卡） */

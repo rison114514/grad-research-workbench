@@ -57,10 +57,10 @@ const DailyPlan = {
     });
     if (dirty) await window.api.store.update('dailyPlans', plan.id, { items: synced });
 
-    box.innerHTML = synced.map((item, index) => {
+    box.innerHTML = synced.map((item) => {
       const isToday = this.state.date === today;
       return `
-        <div class="plan-item ${item.done ? 'done' : ''}" data-index="${index}">
+        <div class="plan-item ${item.done ? 'done' : ''}" data-id="${App.esc(item.id || '')}">
           <div class="plan-item-time">
             <b>${App.esc(item.startTime || '--:--')}</b>
             <span>${App.esc(item.endTime || '--:--')}</span>
@@ -108,30 +108,35 @@ const DailyPlan = {
     await this.render();
   },
 
-  async toggleItem(index) {
+  /** 按 item.id 定位（修复：排序渲染 vs 原始索引错位——点击 A 完成 B 的严重 BUG） */
+  async toggleItem(id) {
     const plan = await this.getPlan(this.state.date);
     if (!plan) return;
+    const idx = (plan.items || []).findIndex((i) => i.id === id);
+    if (idx < 0) return;
     const items = [...(plan.items || [])];
-    items[index] = { ...items[index], done: !items[index].done };
+    items[idx] = { ...items[idx], done: !items[idx].done };
     await window.api.store.update('dailyPlans', plan.id, { items });
     await this.render();
   },
 
-  async removeItem(index) {
+  async removeItem(id) {
     const plan = await this.getPlan(this.state.date);
     if (!plan) return;
+    const idx = (plan.items || []).findIndex((i) => i.id === id);
+    if (idx < 0) return;
     const items = [...(plan.items || [])];
-    items.splice(index, 1);
+    items.splice(idx, 1);
     if (items.length) await window.api.store.update('dailyPlans', plan.id, { items });
     else await window.api.store.remove('dailyPlans', plan.id);
     App.toast('计划已删除', 'ok');
     await this.render();
   },
 
-  async toTask(index) {
+  async toTask(id) {
     const plan = await this.getPlan(this.state.date);
     if (!plan) return;
-    const item = plan.items[index];
+    const item = (plan.items || []).find((i) => i.id === id);
     if (!item || item.taskId) return;
     if (!confirm(`将「${item.title}」转为待办事项任务？`)) return;
     const task = await window.api.store.create('tasks', {
@@ -145,7 +150,9 @@ const DailyPlan = {
       aiSplit: null
     });
     const items = [...(plan.items || [])];
-    items[index] = { ...item, taskId: task.id };
+    const idx = items.findIndex((i) => i.id === id);
+    if (idx < 0) return;
+    items[idx] = { ...item, taskId: task.id };
     await window.api.store.update('dailyPlans', plan.id, { items });
     App.toast('已转为任务，可在待办事项查看', 'ok');
     await this.render();
@@ -332,11 +339,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = e.target.closest('[data-act]');
     const item = e.target.closest('.plan-item');
     if (!btn || !item) return;
-    const index = parseInt(item.dataset.index, 10);
+    const id = item.dataset.id;
     const act = btn.dataset.act;
-    if (act === 'toggle') await DailyPlan.toggleItem(index);
-    else if (act === 'del') { if (confirm('确定删除该计划项？')) await DailyPlan.removeItem(index); }
-    else if (act === 'totask') await DailyPlan.toTask(index);
+    if (act === 'toggle') await DailyPlan.toggleItem(id);
+    else if (act === 'del') { if (confirm('确定删除该计划项？')) await DailyPlan.removeItem(id); }
+    else if (act === 'totask') await DailyPlan.toTask(id);
     else if (act === 'goto') App.navigate('tasks');
   });
 

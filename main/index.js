@@ -7,6 +7,21 @@ const petWindow = require('./pet-window');
 
 let mainWindow = null;
 
+// 单实例锁：防止重复启动产生多个应用进程/多个桌面宠物窗口（Windows 尤其关键）
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // 已有实例运行时再次启动 → 唤起主窗口（不新建进程，不重复创建宠物）
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -38,22 +53,24 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  registerIpc();
-  createWindow();
-  // 若设置开启桌面宠物 → 恢复系统级悬浮球（独立于主窗口）
-  try {
-    const store = require('./store');
-    const st = store.getSettings();
-    if (st.petEnabled) petWindow.createPetWindow();
-  } catch (e) { /* 恢复失败不影响启动 */ }
+if (gotLock) {
+  app.whenReady().then(() => {
+    registerIpc();
+    createWindow();
+    // 若设置开启桌面宠物 → 恢复系统级悬浮球（独立于主窗口）
+    try {
+      const store = require('./store');
+      const st = store.getSettings();
+      if (st.petEnabled) petWindow.createPetWindow();
+    } catch (e) { /* 恢复失败不影响启动 */ }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
-});
 
-app.on('window-all-closed', () => {
-  petWindow.destroyPetWindow();
-  if (process.platform !== 'darwin') app.quit();
-});
+  app.on('window-all-closed', () => {
+    petWindow.destroyPetWindow();
+    if (process.platform !== 'darwin') app.quit();
+  });
+}
