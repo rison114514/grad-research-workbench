@@ -45,6 +45,7 @@ const AssistantActions = {
   canExecute(action) {
     return ['addTask', 'updateTask', 'deleteTask', 'queryTask', 'splitTask',
       'addDailyPlan', 'addDailyPlanMulti', 'addTimeLog', 'addFitnessLog', 'addFitnessPlan',
+      'createDailyTemplate', 'createWeeklyTemplate', 'applyTemplate', 'listDailyTemplates', 'listWeeklyTemplates', 'updateTemplate', 'deleteTemplate',
       'updateDailyPlan', 'updateTimeLog',
       'queryStats', 'queryDailyPlan', 'queryTimeLog', 'queryFitness', 'suggestInsights', 'queryGitHubTrending',
       'queryLiterature', 'readLiterature', 'buildLiteratureRelations', 'generateReport', 'updateFitnessItem', 'addFitnessItem', 'addInspiration', 'queryInspirations', 'queryProjects',
@@ -131,7 +132,12 @@ const AssistantActions = {
     const startTime = /^\d{1,2}:\d{2}$/.test(String(params.startTime || '')) ? params.startTime : '09:00';
     const endTime = /^\d{1,2}:\d{2}$/.test(String(params.endTime || '')) ? params.endTime : nextHour(startTime);
     const type = ['work', 'study', 'meeting', 'life', 'rest'].includes(params.type) ? params.type : 'work';
-    let plan = (await window.api.store.list('dailyPlans')).find((x) => x.date === date);
+    const plans = await window.api.store.list('dailyPlans');
+    let plan = plans.find((x) => x.date === date);
+    // apply 去重：同日同 startTime+title 已存在则跳过
+    if (plan && plan.items.some((i) => i.startTime === startTime && i.title === title)) {
+      return `**未添加**：${formatDate(date)} ${startTime}「${App.esc(title)}」已存在，未重复写入。`;
+    }
     if (!plan) plan = await window.api.store.create('dailyPlans', { date, items: [] });
     plan.items.push({ id: `item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, startTime, endTime, title, type, note: '', done: false, taskId: null });
     await window.api.store.update('dailyPlans', plan.id, { items: plan.items });
@@ -143,16 +149,31 @@ const AssistantActions = {
   addDailyPlanMulti(text) {
     const p = parseDailyPlanMulti(text);
     if (!p.items.length) return '没识别出具体的日程事项 😅 请这样补充：**「九点到教研室打卡，然后做自媒体内容，下午写老师的学术内容」**';
-    const preview = `**每日计划草案**${p.daily ? '（每日例行 · 按单次记录）' : ''}（${formatDate(p.date)}）\n\n${p.items.map((i) => `- ${i.startTime}–${i.endTime} \`${PLAN_TYPE_LABEL[i.type] || '工作'}\` ${App.esc(i.title)}`).join('\n')}\n\n> 保存后写入「每日计划」页；可回复调整（如「第二项改到下午」）。`;
+    const preview = `**每日计划草案**（${formatDate(p.date)}）\n\n${p.items.map((i) => `- ${i.startTime}–${i.endTime} \`${PLAN_TYPE_LABEL[i.type] || '工作'}\` ${App.esc(i.title)}`).join('\n')}\n\n> 仅写入 ${formatDate(p.date)} 当天；「每天/周内」请用「每日模板」。`;
     return {
       needsConfirm: true, mode: 'draft', action: 'addDailyPlanMulti', params: p, preview,
       apply: async () => {
-        let plan = (await window.api.store.list('dailyPlans')).find((x) => x.date === p.date);
+        const plans = await window.api.store.list('dailyPlans');
+        let plan = plans.find((x) => x.date === p.date);
         if (!plan) plan = await window.api.store.create('dailyPlans', { date: p.date, items: [] });
-        plan.items.push(...p.items);
-        await window.api.store.update('dailyPlans', plan.id, { items: plan.items });
-        if (window.DailyPlan) { window.DailyPlan.state.date = p.date; await window.DailyPlan.render(); }
-        return `**已加入每日计划**（${formatDate(p.date)}，${p.items.length} 项）${p.daily ? ' · 每日例行按单次记录' : ''}\n\n${p.items.map((i) => `- ${i.startTime} ${App.esc(i.title)}`).join('\n')}\n\n可在「每日计划」页查看与编辑。`;
+        // apply 去重：跳过同日同 startTime+title
+        const dupKeys = new Set(plan.items.map((e) => `${e.startTime}|${e.title}`));
+        const fresh = [];
+        const skipped = [];
+        for (const it of p.items) {
+          const k = `${it.startTime}|${it.title}`;
+          if (dupKeys.has(k)) { skipped.push(it); continue; }
+          dupKeys.add(k);
+          fresh.push({ id: `item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, startTime: it.startTime, endTime: it.endTime || nextHour(it.startTime), title: String(it.title || '').slice(0, 60), type: ['work','study','meeting','life','rest'].includes(it.type) ? it.type : 'work', note: '', done: false, taskId: null });
+        }
+        if (fresh.length) {
+          plan.items.push(...fresh);
+          await window.api.store.update('dailyPlans', plan.id, { items: plan.items });
+          if (window.DailyPlan) { window.DailyPlan.state.date = p.date; await window.DailyPlan.render(); }
+        }
+        const lines = fresh.map((i) => `- ${i.startTime} ${App.esc(i.title)}`);
+        if (skipped.length) lines.push(`- 已跳过 ${skipped.length} 项（同日重复，已存在）`);
+        return `**已加入每日计划**（${formatDate(p.date)}，${fresh.length} 项）${skipped.length ? ` · 跳过 ${skipped.length} 项` : ''}\n\n${lines.join('\n')}\n\n可在「每日计划」页查看与编辑。`;
       }
     };
   },
@@ -161,12 +182,170 @@ const AssistantActions = {
     const date = isValidDate(String(params.date || '')) ? params.date : App.todayStr();
     const items = Array.isArray(params.items) ? params.items : [];
     if (!items.length) return '未能加入计划：缺少日程事项。';
-    let plan = (await window.api.store.list('dailyPlans')).find((x) => x.date === date);
+    const plans = await window.api.store.list('dailyPlans');
+    let plan = plans.find((x) => x.date === date);
     if (!plan) plan = await window.api.store.create('dailyPlans', { date, items: [] });
-    plan.items.push(...items.map((i) => ({ id: `item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, startTime: i.startTime || '09:00', endTime: i.endTime || '10:00', title: String(i.title || '').slice(0, 60), type: ['work', 'study', 'meeting', 'life', 'rest'].includes(i.type) ? i.type : 'work', note: '', done: false, taskId: null })));
-    await window.api.store.update('dailyPlans', plan.id, { items: plan.items });
-    if (window.DailyPlan) { window.DailyPlan.state.date = date; await window.DailyPlan.render(); }
-    return `**已加入每日计划**（${formatDate(date)}，${items.length} 项）`;
+    // 去重：跳过同日同 startTime+title
+    const dupKeys = new Set(plan.items.map((e) => `${e.startTime}|${e.title}`));
+    const fresh = [];
+    const skipped = [];
+    for (const it of items) {
+      const startTime = it.startTime || '09:00';
+      const title = String(it.title || '').slice(0, 60);
+      const k = `${startTime}|${title}`;
+      if (dupKeys.has(k)) { skipped.push(it); continue; }
+      dupKeys.add(k);
+      fresh.push({ id: `item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, startTime, endTime: it.endTime || nextHour(startTime), title, type: ['work', 'study', 'meeting', 'life', 'rest'].includes(it.type) ? it.type : 'work', note: '', done: false, taskId: null });
+    }
+    if (fresh.length) {
+      plan.items.push(...fresh);
+      await window.api.store.update('dailyPlans', plan.id, { items: plan.items });
+      if (window.DailyPlan) { window.DailyPlan.state.date = date; await window.DailyPlan.render(); }
+    }
+    return fresh.length
+      ? `**已加入每日计划**（${formatDate(date)}，${fresh.length} 项）${skipped.length ? ` · 跳过 ${skipped.length} 项` : ''}`
+      : `**未添加**：${formatDate(date)} 当天所有事项已存在，未重复写入。`;
+  },
+
+  /* ---------------- 每日/每周模板（核心改动 v1.6.0：周期安排范式） ---------------- */
+  async createDailyTemplateStructured(params = {}) {
+    const name = String(params.name || '').trim().slice(0, 60);
+    const frequency = ['everyday', 'weekdays', 'weekend', 'custom'].includes(params.frequency) ? params.frequency : 'everyday';
+    const weekdays = Array.isArray(params.weekdays) ? params.weekdays.filter((w) => Number.isInteger(w) && w >= 0 && w <= 6) : [];
+    const items = Array.isArray(params.items) ? params.items : [];
+    if (!name) return '缺少模板名称（如「每日 9 点上班」）。';
+    if (frequency === 'custom' && !weekdays.length) return '自定义频率需指定 weekdays（0-6 数组）。';
+    if (!items.length) return '模板事项为空，至少 1 项（如「9:00-10:00 工作」）。';
+    const tpl = {
+      id: `tpl-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      name, frequency, weekdays,
+      items: items.map((i) => ({
+        id: `it-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+        startTime: i.startTime || '09:00',
+        endTime: i.endTime || nextHour(i.startTime || '09:00'),
+        title: String(i.title || '').slice(0, 60),
+        type: ['work', 'study', 'meeting', 'life', 'rest'].includes(i.type) ? i.type : 'work',
+        note: String(i.note || '').slice(0, 120)
+      })),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    await window.api.store.create('dailyTemplates', tpl);
+    return `**已创建每日模板**：${App.esc(name)}（频率：${frequency === 'everyday' ? '每天' : frequency === 'weekdays' ? '周内' : frequency === 'weekend' ? '周末' : `自定义${JSON.stringify(weekdays)}`}，${tpl.items.length} 项）\n\n> 在「每日计划」页模板管理可查看/编辑。可说「应用今日模板到 X 日」将其派生到具体日期。`;
+  },
+
+  async createWeeklyTemplateStructured(params = {}) {
+    const name = String(params.name || '').trim().slice(0, 60);
+    const weekday = Number(params.weekday);
+    const items = Array.isArray(params.items) ? params.items : [];
+    if (!name) return '缺少模板名称（如「每周三买菜」）。';
+    if (!(weekday >= 0 && weekday <= 6)) return '缺少 weekday（0-6，0=周日）。';
+    if (!items.length) return '模板事项为空，至少 1 项。';
+    const tpl = {
+      id: `wtpl-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      name, weekday,
+      items: items.map((i) => ({ title: String(i.title || '').slice(0, 60), type: ['work', 'study', 'meeting', 'life', 'rest'].includes(i.type) ? i.type : 'work', note: String(i.note || '').slice(0, 120) })),
+      createdAt: new Date().toISOString()
+    };
+    await window.api.store.create('weeklyTemplates', tpl);
+    const weekdayLabel = ['日', '一', '二', '三', '四', '五', '六'][weekday];
+    return `**已创建每周模板**：${App.esc(name)}（每周${weekdayLabel}，${tpl.items.length} 项）`;
+  },
+
+  async listDailyTemplatesStructured() {
+    const tpls = await window.api.store.list('dailyTemplates');
+    if (!tpls.length) return '暂无每日模板。';
+    const freqLabel = { everyday: '每天', weekdays: '周内', weekend: '周末' };
+    let reply = `**每日模板**（${tpls.length} 个）\n\n`;
+    tpls.forEach((t) => {
+      const f = freqLabel[t.frequency] || `自定义${JSON.stringify(t.weekdays || [])}`;
+      reply += `- **${App.esc(t.name)}** · ${f} · ${t.items.length} 项\n`;
+    });
+    reply += '\n可说「应用今日模板到 X 日」或「修改/删除模板」管理。';
+    return reply;
+  },
+
+  async listWeeklyTemplatesStructured() {
+    const tpls = await window.api.store.list('weeklyTemplates');
+    if (!tpls.length) return '暂无每周模板。';
+    let reply = `**每周模板**（${tpls.length} 个）\n\n`;
+    tpls.forEach((t) => {
+      const weekdayLabel = ['日', '一', '二', '三', '四', '五', '六'][t.weekday || 0];
+      reply += `- **${App.esc(t.name)}** · 每周${weekdayLabel} · ${t.items.length} 项\n`;
+    });
+    return reply;
+  },
+
+  /** 把模板展开为某日 dailyPlans items（一次性派生，不改模板） */
+  async applyTemplateStructured(params = {}) {
+    const templateId = String(params.templateId || '');
+    const targetDate = isValidDate(String(params.targetDate || '')) ? params.targetDate : App.todayStr();
+    const dailyTpls = await window.api.store.list('dailyTemplates');
+    const weeklyTpls = await window.api.store.list('weeklyTemplates');
+    const dTpl = dailyTpls.find((t) => t.id === templateId);
+    const wTpl = weeklyTpls.find((t) => t.id === templateId);
+    const tpl = dTpl || wTpl;
+    if (!tpl) return '未找到该模板。';
+    // 派生：展开模板 items 为 targetDate 的 dailyPlan items
+    let srcItems = [];
+    if (dTpl) {
+      srcItems = dTpl.items.map((i) => ({ ...i }));
+    } else {
+      srcItems = wTpl.items.map((i) => ({ startTime: i.startTime || '09:00', endTime: i.endTime || '10:00', title: i.title, type: i.type || 'work', note: i.note || '' }));
+    }
+    const plans = await window.api.store.list('dailyPlans');
+    let plan = plans.find((x) => x.date === targetDate);
+    if (!plan) plan = await window.api.store.create('dailyPlans', { date: targetDate, items: [] });
+    // 去重 + 来源标记
+    const dupKeys = new Set(plan.items.map((e) => `${e.startTime}|${e.title}`));
+    const fresh = [];
+    const skipped = [];
+    for (const it of srcItems) {
+      const k = `${it.startTime}|${it.title}`;
+      if (dupKeys.has(k)) { skipped.push(it); continue; }
+      dupKeys.add(k);
+      fresh.push({ id: `item-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, startTime: it.startTime, endTime: it.endTime || nextHour(it.startTime), title: it.title, type: it.type || 'work', note: it.note || '', done: false, taskId: null, source: 'template', templateId: tpl.id, templateName: tpl.name });
+    }
+    if (fresh.length) {
+      plan.items.push(...fresh);
+      await window.api.store.update('dailyPlans', plan.id, { items: plan.items });
+      if (window.DailyPlan) { window.DailyPlan.state.date = targetDate; await window.DailyPlan.render(); }
+    }
+    return fresh.length
+      ? `**已应用模板「${App.esc(tpl.name)}」到 ${formatDate(targetDate)}**（${fresh.length} 项）${skipped.length ? ` · 跳过 ${skipped.length} 项` : ''}\n\n可在「每日计划」页查看。`
+      : `**未应用**：${formatDate(targetDate)} 所有事项已存在，未重复写入。`;
+  },
+
+  async updateTemplateStructured(params = {}) {
+    const templateId = String(params.templateId || '');
+    if (!templateId) return '缺少 templateId。';
+    const patch = {};
+    if (params.name) patch.name = String(params.name).slice(0, 60);
+    if (params.frequency && ['everyday', 'weekdays', 'weekend', 'custom'].includes(params.frequency)) patch.frequency = params.frequency;
+    if (Array.isArray(params.weekdays)) patch.weekdays = params.weekdays.filter((w) => Number.isInteger(w) && w >= 0 && w <= 6);
+    if (Array.isArray(params.items)) {
+      patch.items = params.items.map((i) => ({ id: `it-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`, startTime: i.startTime || '09:00', endTime: i.endTime || nextHour(i.startTime || '09:00'), title: String(i.title || '').slice(0, 60), type: ['work', 'study', 'meeting', 'life', 'rest'].includes(i.type) ? i.type : 'work', note: String(i.note || '').slice(0, 120) }));
+    }
+    if (!Object.keys(patch).length) return '未提供修改字段。';
+    patch.updatedAt = new Date().toISOString();
+    const dailyTpls = await window.api.store.list('dailyTemplates');
+    const dTpl = dailyTpls.find((t) => t.id === templateId);
+    if (!dTpl) return '模板未找到或不是每日模板（每周模板暂不支持修改）。';
+    await window.api.store.update('dailyTemplates', templateId, patch);
+    return `**已修改每日模板**：${App.esc(patch.name || dTpl.name)}`;
+  },
+
+  async deleteTemplateStructured(params = {}) {
+    const templateId = String(params.templateId || '');
+    if (!templateId) return '缺少 templateId。';
+    const dailyTpls = await window.api.store.list('dailyTemplates');
+    const weeklyTpls = await window.api.store.list('weeklyTemplates');
+    let target = dailyTpls.find((t) => t.id === templateId);
+    let domain = 'dailyTemplates';
+    if (!target) { target = weeklyTpls.find((t) => t.id === templateId); domain = 'weeklyTemplates'; }
+    if (!target) return '模板未找到。';
+    await window.api.store.remove(domain, templateId);
+    return `**已删除模板**：${App.esc(target.name)}`;
   },
 
   async queryDailyPlan(text) {
@@ -469,6 +648,13 @@ const AssistantActions = {
       case 'splitTask': return await this.splitTaskStructured(params);
       case 'addDailyPlan': return await this.createDailyPlanStructured(params);
       case 'addDailyPlanMulti': return await this.createDailyPlanMultiStructured(params);
+      case 'createDailyTemplate': return await this.createDailyTemplateStructured(params);
+      case 'createWeeklyTemplate': return await this.createWeeklyTemplateStructured(params);
+      case 'listDailyTemplates': return await this.listDailyTemplatesStructured();
+      case 'listWeeklyTemplates': return await this.listWeeklyTemplatesStructured();
+      case 'applyTemplate': return await this.applyTemplateStructured(params);
+      case 'updateTemplate': return await this.updateTemplateStructured(params);
+      case 'deleteTemplate': return await this.deleteTemplateStructured(params);
       case 'addTimeLog': return await this.createTimeLogStructured(params);
       case 'addFitnessLog': return await this.createFitnessLogStructured(params);
       case 'addFitnessPlan': return await this.createFitnessPlanStructured(params);

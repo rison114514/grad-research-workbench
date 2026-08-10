@@ -72,7 +72,7 @@ const TOOLS = [
   },
   {
     name: 'addDailyPlan',
-    description: '安排单个日程（含时间段）。当用户说「安排/计划 X点到Y点 做某事」且只有一个时间段时使用。多个时间段或多个事项用 addDailyPlanMulti。',
+    description: '为【特定日期】新增单个日程事项（含时间段）。当用户说「8月15日9点写论文」「明天下午2点开会」时使用。注意：①「每天/每日/周内」语境请用 createDailyTemplate（周期模板），不要用本工具展开到多天；②同日同 startTime+title 已存在则跳过不重复写入。',
     parameters: {
       type: 'object',
       required: ['title'],
@@ -89,7 +89,7 @@ const TOOLS = [
   },
   {
     name: 'addDailyPlanMulti',
-    description: '批量安排多个日程事项。当用户给出多个时间段或多个事项（如「九点打卡，下午写论文，晚上健身」）或说「每日计划/每天的计划」时使用。',
+    description: '为【特定日期】批量新增多个日程事项（单次事件批量）。当用户给出多个时间段或多个事项（如「8月15日九点打卡，下午写论文，晚上健身」）时使用。注意：①仅写【特定日期】，不展开到多天——「每天/每日/周内」请用 createDailyTemplate；②同日同 startTime+title 自动跳过；③模板类周期性安排请用 createDailyTemplate / createWeeklyTemplate。',
     parameters: {
       type: 'object',
       required: ['items'],
@@ -109,6 +109,109 @@ const TOOLS = [
     },
     write: true,
     executor: 'addDailyPlanMulti'
+  },
+  {
+    name: 'createDailyTemplate',
+    description: '创建【每日模板】（周期性固定安排）。当用户说「每天/每日 9点上班」「周内 2点学习」「每天晚饭后健身」时使用——这是规则，不是具体某一天。模板保存后可应用到任意日期；frequency: everyday（每天）/ weekdays（周一至周五）/ weekend（周六日）/ custom（自定义 weekdays 数组）。注意：「每天九点上班」这种【周期安排】必用本工具，绝不要用 addDailyPlanMulti 展开到多天（会重复创建）。',
+    parameters: {
+      type: 'object',
+      required: ['name', 'items'],
+      properties: {
+        name: { type: 'string', description: '模板名称（如「每日 9 点上班」）' },
+        frequency: { type: 'string', enum: ['everyday', 'weekdays', 'weekend', 'custom'], description: '频率，默认 everyday' },
+        weekdays: { type: 'array', items: { type: 'integer' }, description: 'frequency=custom 时指定，0-6（0=周日）' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              startTime: { type: 'string' }, endTime: { type: 'string' },
+              title: { type: 'string' }, type: { type: 'string', enum: ['work', 'study', 'meeting', 'life', 'rest'] },
+              note: { type: 'string' }
+            }
+          }
+        }
+      }
+    },
+    write: true,
+    executor: 'createDailyTemplate'
+  },
+  {
+    name: 'createWeeklyTemplate',
+    description: '创建【每周模板】（每周固定要做的事）。当用户说「每周三买菜」「周五晚上健身」时使用——每周重复的单次行为。weekday 0-6（0=周日）。注意：「每周X做Y」必用本工具，不是每日模板（每周做一次 vs 每日做的事语义不同）。',
+    parameters: {
+      type: 'object',
+      required: ['name', 'weekday'],
+      properties: {
+        name: { type: 'string', description: '模板名称（如「每周三买菜」）' },
+        weekday: { type: 'integer', description: '0-6（0=周日，6=周六）' },
+        items: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { title: { type: 'string' }, type: { type: 'string', enum: ['work', 'study', 'meeting', 'life', 'rest'] }, note: { type: 'string' } }
+          }
+        }
+      }
+    },
+    write: true,
+    executor: 'createWeeklyTemplate'
+  },
+  {
+    name: 'applyTemplate',
+    description: '把模板【派生展开】到指定日期（一次性，不改模板）。当用户说「应用今日模板到今天」「应用『每日 9 点上班』到 8/15」时使用。展开结果写入目标日 dailyPlans 并标记来源（template/source/templateId/templateName）；同日同 startTime+title 自动跳过。',
+    parameters: {
+      type: 'object',
+      required: ['templateId', 'targetDate'],
+      properties: {
+        templateId: { type: 'string', description: '模板 ID（来自 listDailyTemplates/listWeeklyTemplates）' },
+        targetDate: { type: 'string', description: '目标日期 YYYY-MM-DD（默认今天）' }
+      }
+    },
+    write: true,
+    executor: 'applyTemplate'
+  },
+  {
+    name: 'listDailyTemplates',
+    description: '查询所有【每日模板】。当用户问「我有哪些固定安排」「看看每日模板」「修改某模板前先看」时使用。',
+    parameters: { type: 'object', properties: {} },
+    write: false,
+    executor: 'listDailyTemplates'
+  },
+  {
+    name: 'listWeeklyTemplates',
+    description: '查询所有【每周模板】。当用户问「每周固定安排」「看看每周模板」时使用。',
+    parameters: { type: 'object', properties: {} },
+    write: false,
+    executor: 'listWeeklyTemplates'
+  },
+  {
+    name: 'updateTemplate',
+    description: '修改模板。仅支持每日模板。修改频率/名称/事项；不会影响已派生的历史数据。当用户说「把每日 9 点上班改名为…」或「调整频率为周内」时使用。',
+    parameters: {
+      type: 'object',
+      required: ['templateId'],
+      properties: {
+        templateId: { type: 'string' },
+        name: { type: 'string' },
+        frequency: { type: 'string', enum: ['everyday', 'weekdays', 'weekend', 'custom'] },
+        weekdays: { type: 'array', items: { type: 'integer' } },
+        items: { type: 'array', items: { type: 'object', properties: { startTime: { type: 'string' }, endTime: { type: 'string' }, title: { type: 'string' }, type: { type: 'string' }, note: { type: 'string' } } } }
+      }
+    },
+    write: true,
+    executor: 'updateTemplate'
+  },
+  {
+    name: 'deleteTemplate',
+    description: '删除模板（每日或每周）。模板删除后不影响已派生的历史数据。当用户说「删除『每日 9 点上班』」「移除每周三买菜」时使用。',
+    parameters: {
+      type: 'object',
+      required: ['templateId'],
+      properties: { templateId: { type: 'string' } }
+    },
+    write: true,
+    executor: 'deleteTemplate'
   },
   {
     name: 'addTimeLog',
@@ -159,7 +262,7 @@ const TOOLS = [
   },
   {
     name: 'updateDailyPlan',
-    description: '修改或删除【每日计划】项。当用户说「把X改到Y点」「删除X」「改一下计划」时使用；matchTitle 用于定位事项。注意：仅处理每日计划（时间段事项）；修改/删除【任务/待办】请用 updateTask/deleteTask，查询任务清单用 queryTask。',
+    description: '修改或删除【某日】的 dailyPlan 项（含派生自模板的项）。当用户说「把8月15日9点的写论文改到下午2点」「删除8月15日的组会」时使用；matchTitle 用于定位事项。注意：仅修改【单日】items；修改/删除模板本体请用 updateTemplate/deleteTemplate。',
     parameters: {
       type: 'object',
       required: ['date'],
@@ -198,7 +301,7 @@ const TOOLS = [
   },
   {
     name: 'queryDailyPlan',
-    description: '查询某天的日程计划。当用户问「看看今天/明天的计划」时使用。',
+    description: '查询某日的计划（含模板派生项 + 单次事件 + 用户手动添加项的合并视图）。当用户问「看看今天/明天的计划」时使用；返回当日所有时间块及其来源（标记 template=派生自模板 / 空=单次）。',
     parameters: {
       type: 'object',
       properties: { date: { type: 'string', description: 'YYYY-MM-DD，缺省今天' } }

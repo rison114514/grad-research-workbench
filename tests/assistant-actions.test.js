@@ -8,7 +8,7 @@ const ACTIONS_PATH = path.join(__dirname, '..', 'renderer', 'js', 'assistant-act
 
 /* ---------------- mock 环境 ---------------- */
 const db = {
-  tasks: [], activity: [], dailyPlans: [], timeLogs: [], fitnessPlans: [], fitnessLogs: [],
+  tasks: [], activity: [], dailyPlans: [], dailyTemplates: [], weeklyTemplates: [], timeLogs: [], fitnessPlans: [], fitnessLogs: [],
   reports: [], settings: [{}]
 };
 let seq = 0;
@@ -90,7 +90,7 @@ let A;
 before(() => { A = require(ACTIONS_PATH); });
 
 function reset() {
-  ['tasks', 'activity', 'dailyPlans', 'timeLogs', 'fitnessPlans', 'fitnessLogs', 'reports'].forEach((d) => { db[d] = []; });
+  ['tasks', 'activity', 'dailyPlans', 'dailyTemplates', 'weeklyTemplates', 'timeLogs', 'fitnessPlans', 'fitnessLogs', 'reports'].forEach((d) => { db[d] = []; });
   global.__tasksRendered = 0; global.__boardInvalidated = 0; global.__dailyPlanRendered = 0; global.__timeRendered = 0; global.__fitnessRendered = 0;
 }
 
@@ -668,4 +668,94 @@ test('executeStructured：任务侧工具分发（语义层入口）', async () 
   assert.equal(db.tasks[0].priority, 'high');
   await A.executeStructured('deleteTask', { matchTitle: '组会材料' });
   assert.equal(db.tasks.length, 0);
+});
+
+/* ---------------- v1.6.0 模板范式（每日/每周模板 + 防重入） ---------------- */
+test('createDailyTemplateStructured：创建每日模板（everyday）', async () => {
+  reset();
+  const r = await A.createDailyTemplateStructured({ name: '每日 9 点上班', frequency: 'everyday', items: [{ startTime: '09:00', endTime: '18:00', title: '教研室工作', type: 'work' }] });
+  assert.equal(db.dailyTemplates.length, 1);
+  assert.equal(db.dailyTemplates[0].frequency, 'everyday');
+  assert.equal(db.dailyTemplates[0].items[0].title, '教研室工作');
+  assert.ok(r.includes('已创建每日模板'));
+});
+
+test('createWeeklyTemplateStructured：创建每周模板（周三买菜）', async () => {
+  reset();
+  const r = await A.createWeeklyTemplateStructured({ name: '每周三买菜', weekday: 3, items: [{ title: '买菜', type: 'life' }] });
+  assert.equal(db.weeklyTemplates.length, 1);
+  assert.equal(db.weeklyTemplates[0].weekday, 3);
+  assert.ok(r.includes('每周三'));
+});
+
+test('applyTemplateStructured：派生到日期 + 重复应用跳过（防重入）', async () => {
+  reset();
+  await A.createDailyTemplateStructured({ name: '每日 9 点上班', frequency: 'everyday', items: [{ startTime: '09:00', endTime: '10:00', title: '上班', type: 'work' }] });
+  const tplId = db.dailyTemplates[0].id;
+  // 第一次应用 → 落库 1 项
+  const r1 = await A.applyTemplateStructured({ templateId: tplId, targetDate: '2026-08-11' });
+  assert.equal(db.dailyPlans.find((p) => p.date === '2026-08-11').items.length, 1);
+  assert.ok(r1.includes('已应用模板'));
+  // 第二次应用（重复确认）→ 去重跳过，不重复落库
+  const r2 = await A.applyTemplateStructured({ templateId: tplId, targetDate: '2026-08-11' });
+  assert.equal(db.dailyPlans.find((p) => p.date === '2026-08-11').items.length, 1, '重复应用不重复写入');
+  assert.ok(r2.includes('未应用') || r2.includes('已存在'), '提示已存在');
+});
+
+test('addDailyPlanMulti apply 去重：同 startTime+title 重复确认不重复写入', async () => {
+  reset();
+  const card = A.addDailyPlanMulti('帮我安排 明天 九点到教研室打卡，下午两点写论文');
+  assert.ok(card && card.needsConfirm);
+  const date = card.params.date;
+  await card.apply();
+  const day = db.dailyPlans.find((p) => p.date === date);
+  assert.equal(day.items.length, 2, '首次应用 2 项');
+  await card.apply(); // 重复确认
+  assert.equal(day.items.length, 2, '重复确认不重复写入（apply 幂等）');
+});
+
+test('createDailyPlanMultiStructured 去重：同 startTime+title 跳过', async () => {
+  reset();
+  const items = [{ startTime: '09:00', endTime: '10:00', title: '上班', type: 'work' }];
+  const r1 = await A.createDailyPlanMultiStructured({ date: '2026-08-11', items });
+  assert.equal(db.dailyPlans.find((p) => p.date === '2026-08-11').items.length, 1);
+  const r2 = await A.createDailyPlanMultiStructured({ date: '2026-08-11', items });
+  assert.equal(db.dailyPlans.find((p) => p.date === '2026-08-11').items.length, 1, '重复参数不重复写入');
+  assert.ok(r2.includes('未添加') || r2.includes('跳过'), '提示已存在');
+});
+
+test('模板 CRUD：list / update / delete', async () => {
+  reset();
+  await A.createDailyTemplateStructured({ name: '每日模板A', frequency: 'weekdays', items: [{ startTime: '09:00', title: '工作', type: 'work' }] });
+  const tplId = db.dailyTemplates[0].id;
+  const l1 = await A.listDailyTemplatesStructured();
+  assert.ok(l1.includes('每日模板A') && l1.includes('周内'));
+  const u = await A.updateTemplateStructured({ templateId: tplId, name: '每日模板B' });
+  assert.equal(db.dailyTemplates[0].name, '每日模板B');
+  const d = await A.deleteTemplateStructured({ templateId: tplId });
+  assert.equal(db.dailyTemplates.length, 0);
+  assert.ok(d.includes('已删除'));
+  // 每周模板 list
+  await A.createWeeklyTemplateStructured({ name: '每周五健身', weekday: 5, items: [{ title: '健身', type: 'sport' }] });
+  const l2 = await A.listWeeklyTemplatesStructured();
+  assert.ok(l2.includes('每周五健身'));
+});
+
+test('canExecute 白名单：模板工具已接入', () => {
+  assert.equal(A.canExecute('createDailyTemplate'), true);
+  assert.equal(A.canExecute('createWeeklyTemplate'), true);
+  assert.equal(A.canExecute('applyTemplate'), true);
+  assert.equal(A.canExecute('listDailyTemplates'), true);
+  assert.equal(A.canExecute('listWeeklyTemplates'), true);
+  assert.equal(A.canExecute('updateTemplate'), true);
+  assert.equal(A.canExecute('deleteTemplate'), true);
+});
+
+test('executeStructured：模板工具分发（语义层入口）', async () => {
+  reset();
+  const r = await A.executeStructured('createDailyTemplate', { name: '每日学习', frequency: 'everyday', items: [{ startTime: '14:00', endTime: '17:00', title: '学习', type: 'study' }] });
+  assert.equal(db.dailyTemplates.length, 1);
+  assert.ok(r.includes('已创建每日模板'));
+  const q = await A.executeStructured('listDailyTemplates', {});
+  assert.ok(q.includes('每日学习'));
 });

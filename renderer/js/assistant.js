@@ -74,6 +74,8 @@ const TOOLS_SYSTEM_PROMPT = `你是「塞西」（Xaihi），本名塞拉菲娜�
 7. 今天日期由【当前工作区上下文】提供；相对日期（明天/昨天/本周）按它换算；时长换算 1.5小时=90分钟。
 8. 健康/健身类建议使用非专业草案语气，不假装掌握用户身体状况。
 9. 修改/删除某条记录前，若不确定目标名称或 ID：**先调用对应查询工具获取清单**（如 queryFitness 查看健身计划条目清单、queryDailyPlan 看日程、queryTask 看任务清单、queryStats 看任务统计），再用修改工具按清单中的名称精确定位（如 updateFitnessItem 的 matchName、updateTask 的 matchTitle）。添加条目用 addFitnessItem。
+10. **周期识别（v1.6.0 关键规则）**：用户说「每天/每日/周内/每周/固定安排」→ **必须**调用 createDailyTemplate / createWeeklyTemplate（模板是规则），**绝不**调用 addDailyPlanMulti 展开到多天。「每天 9 点上班」「每周三买菜」都是**模板**，不是某个具体日期的多份日程。模板保存后可由 applyTemplate 派生到具体日期。
+11. **写入幂等**：所有写工具的 apply 内部已对「同日同 startTime+title」做去重（重复确认同模板同日不会重复落库）。一次确认对应一次落库；不要为「同重复请求」生成多个确认请求（AgentLoop 已合并同 hash 的多 tool_call 为单张确认卡）。
 
 如果无需调用工具，直接给出简洁、可执行的中文回答。`;
 
@@ -205,7 +207,7 @@ const Assistant = {
 
   /* ================= 消息渲染 ================= */
   renderWelcome() {
-    this.addMsg('ai', '你好！我是科研工作台助手。\n\n我可以直接帮你：\n· 新增 / 修改 / 删除 任务、日程、时间记录\n· 健身打卡、健身计划（草案可预览后保存）、运动方案规划\n· 查询进度、生成日报周报\n· 分析你的时间安排并给出建议\n\n例如：\n· 「帮我制定一个健身计划，每天半小时」（生成草案）\n· 「安排 明天9点到11点 写论文」→「把明天9点的写论文改到下午2点」\n· 「帮我看看时间安排」→ 今日洞察与建议');
+    this.addMsg('ai', '你好！我是科研工作台助手。\n\n我可以直接帮你：\n· 新增 / 修改 / 删除 任务（待办事项）和【日程】\n· 创建【每日模板 / 每周模板】（如「每天9点上班」「每周三买菜」）并应用到具体日期\n· 健身打卡、健身计划（草案可预览后保存）、运动方案规划\n· 查询进度、生成日报周报\n· 分析你的时间安排并给出建议\n\n例如：\n· 「每天9点到10点上班，下午2点学3小时」→ 创建每日模板\n· 「每周三晚上买菜」→ 创建每周模板\n· 「安排 明天9点到11点 写论文」→「把明天9点的写论文改到下午2点」\n· 「帮我看看时间安排」→ 今日洞察与建议');
   },
 
   renderRecorded(m) {
@@ -624,6 +626,8 @@ const Assistant = {
     let hasCard = false;
     const toolResults = [];           // 读工具结果（供多轮回传）
     const assistantCalls = [];        // OpenAI 格式 assistant tool_calls（供多轮回传）
+    // 防重入：同一 action+params 的多个写 tool_call 合并为单张确认卡（解决截图 bug：模型误读「每日」为多天反复 tool_call）
+    const pendingWrites = new Map(); // hash -> { div, card }
 
     for (const tc of toolCalls || []) {
       const name = tc.name || '';
@@ -641,13 +645,20 @@ const Assistant = {
       const callId = tc.id || `call_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
       assistantCalls.push({ id: callId, type: 'function', function: { name, arguments: JSON.stringify(v.params) } });
       if (ToolRegistry.isWrite(name)) {
-        // 写操作 → 确认卡（保存/确认才落库；不参与多轮回传）
+        // 写操作：同 action+params 合并为单张确认卡
+        const hash = `${name}::${JSON.stringify(v.params)}`;
+        if (pendingWrites.has(hash)) {
+          textParts.push(`> 已合并到上方确认卡（重复请求：${name}）。`);
+          if (trace) trace.push({ t: 'tool', label: `${name} 重复请求已合并`, detail: JSON.stringify(v.params).slice(0, 120) });
+          continue;
+        }
         const card = await AssistantActions.buildActionCard(name, v.params || {});
         const div = target.renderMessage('ai', '处理中…');
         div.innerHTML = `<span class="spinner"></span>`;
         this.renderResult(div, card, (reply, extra) => target.record('ai', reply, extra), personaLead(name));
         this.appendTrace(div, trace || []);
         await target.record('ai', card.preview, { kind: 'draft', action: name, params: v.params, draft: true, confirmed: false });
+        pendingWrites.set(hash, { div, card });
         hasCard = true;
       } else {
         // 读操作 → 确定性执行，结果收集供多轮回传
@@ -657,6 +668,12 @@ const Assistant = {
           toolResults.push({ tool_call_id: callId, output: String(reply) });
         }
       }
+    }
+
+    // 标注：合并了多少写请求
+    if (pendingWrites.size && (toolCalls || []).filter((tc) => tc && ToolRegistry.isWrite(tc.name)).length > pendingWrites.size) {
+      const merged = (toolCalls || []).filter((tc) => tc && ToolRegistry.isWrite(tc.name)).length - pendingWrites.size;
+      if (trace) trace.push({ t: 'info', label: '合并重复确认卡', detail: `${merged} 个写请求已合并为 1 张卡` });
     }
 
     // 多轮循环：读工具结果按 role:'tool' 回传模型继续生成（maxRounds=4）

@@ -29,7 +29,7 @@ function fmtCn(d) {
 }
 
 /** 生成报告草稿（本地模板），返回 { content, dateRange }
- * 数据源：任务 + 每日计划（dailyPlans）+ 健身打卡（fitnessLogs）+ 灵感（inspirations）
+ * 数据源：任务 + 每日计划（dailyPlans）+ 每日/每周模板（dailyTemplates/weeklyTemplates）+ 健身打卡（fitnessLogs）+ 灵感（inspirations）
  * 注意：不读取文献管理数据（文献≠今日工作），避免把上传/阅读文献误认为当日产出
  */
 const FIT_TYPE_LABEL = { running: '跑步', strength: '力量', yoga: '瑜伽', ball: '球类', other: '其他' };
@@ -38,6 +38,8 @@ function generateDraft(type, date) {
   const tasks = store.list('tasks');
   const projects = store.list('projects');
   const dailyPlans = store.list('dailyPlans');
+  const dailyTemplates = store.list('dailyTemplates');
+  const weeklyTemplates = store.list('weeklyTemplates');
   const fitnessLogs = store.list('fitnessLogs');
   const inspirations = store.list('inspirations');
 
@@ -81,6 +83,7 @@ function generateDraft(type, date) {
   lines.push('## 一、今日/本周概述');
   lines.push(`- 完成任务 **${doneTasks.length}** 项，进行中 **${doingTasks.length}** 项，待办 **${todoTasks.length}** 项`);
   lines.push(`- ${type === 'daily' ? '今日' : '本周'}每日计划 **${planItems.length}** 项（完成 **${doneItems.length}** 项）`);
+  lines.push(`- 每日模板 **${dailyTemplates.length}** 个（每周模板 **${weeklyTemplates.length}** 个），固定安排已就绪`);
   lines.push(`- 健身打卡 **${fitDone.length}** 次（累计 **${fitMinutes}** 分钟）`);
   lines.push(`- 记录灵感 **${ideas.length}** 条`);
   lines.push('');

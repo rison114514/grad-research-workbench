@@ -52,13 +52,14 @@ global.window = {
 global.App = global.window.App; // assistant-actions 内部引用全局 App
 const A = require(path.join(__dirname, '..', 'renderer', 'js', 'assistant-actions.js'));
 
-test('ToolRegistry：30 个工具（任务侧新增 queryTask/updateTask/deleteTask/splitTask），OpenAI 兼容格式', () => {
+test('ToolRegistry：37 个工具（任务侧 4 + 模板侧 7），OpenAI 兼容格式', () => {
   const list = ToolRegistry.list();
-  assert.equal(list.length, 30);
+  assert.equal(list.length, 37);
   assert.equal(list[0].type, 'function');
   assert.ok(list[0].function.name && list[0].function.description && list[0].function.parameters);
   const names = list.map((t) => t.function.name);
   assert.ok(names.includes('queryTask') && names.includes('updateTask') && names.includes('deleteTask') && names.includes('splitTask'), '任务侧 4 工具已注册');
+  assert.ok(names.includes('createDailyTemplate') && names.includes('createWeeklyTemplate') && names.includes('applyTemplate') && names.includes('listDailyTemplates') && names.includes('listWeeklyTemplates') && names.includes('updateTemplate') && names.includes('deleteTemplate'), '模板侧 7 工具已注册');
 });
 
 test('ToolRegistry：写/读分类（安全边界依据）', () => {
