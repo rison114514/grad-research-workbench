@@ -22,12 +22,14 @@ function registerIpc() {
   ipcMain.handle('app:getVersion', () => ({ version: app.getVersion(), platform: process.platform }));
 
   /* ---------- 数据 CRUD（通用化） ---------- */
-  ipcMain.handle('store:list', (e, domain) => store.list(domain));
-  ipcMain.handle('store:create', (e, domain, record) => store.create(domain, record));
-  ipcMain.handle('store:update', (e, domain, id, patch) => store.update(domain, id, patch));
-  ipcMain.handle('store:remove', (e, domain, id) => store.remove(domain, id));
-  ipcMain.handle('store:batchCreate', (e, domain, records) => store.batchCreate(domain, records));
-  ipcMain.handle('store:upsertBy', (e, domain, keyField, record) => store.upsertBy(domain, keyField, record));
+  const allowedDomains = store.DOMAINS.filter(d => d !== 'settings');
+  const checkDomain = d => { if (!allowedDomains.includes(d)) throw new Error(`未知数据域: ${d}`); };
+  ipcMain.handle('store:list', (e, domain) => { checkDomain(domain); return store.list(domain); });
+  ipcMain.handle('store:create', (e, domain, record) => { checkDomain(domain); return store.create(domain, record); });
+  ipcMain.handle('store:update', (e, domain, id, patch) => { checkDomain(domain); return store.update(domain, id, patch); });
+  ipcMain.handle('store:remove', (e, domain, id) => { checkDomain(domain); return store.remove(domain, id); });
+  ipcMain.handle('store:batchCreate', (e, domain, records) => { checkDomain(domain); return store.batchCreate(domain, records); });
+  ipcMain.handle('store:upsertBy', (e, domain, keyField, record) => { checkDomain(domain); return store.upsertBy(domain, keyField, record); });
   ipcMain.handle('store:getSettings', () => store.getSettings());
   ipcMain.handle('store:saveSettings', (e, patch) => store.saveSettings(patch));
   ipcMain.handle('store:getDataDir', () => store.getDataDirPath());
@@ -134,7 +136,7 @@ function registerIpc() {
     const win = require('electron').BrowserWindow.getAllWindows()[0];
     const res = await dialog.showSaveDialog(win, {
       title: '导出 Markdown',
-      defaultPath: path.join(app.getPath('documents'), `${defaultName || 'report'}.md`),
+      defaultPath: app.getPath('documents'),
       filters: [{ name: 'Markdown', extensions: ['md'] }]
     });
     if (res.canceled || !res.filePath) return { ok: false, canceled: true };
