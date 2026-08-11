@@ -1,3 +1,5 @@
+![科研工作台 · Graduate Research Workbench](./cover-readme.png)
+
 # 科研工作台 · Graduate Research Workbench
 
 > 面向工科研究生的个人智能工作台 · 桌面应用 · **所有数据保存在本地** · AI Agent 集成
