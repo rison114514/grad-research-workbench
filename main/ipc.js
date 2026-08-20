@@ -28,6 +28,12 @@ function registerIpc() {
   ipcMain.handle('store:remove', (e, domain, id) => store.remove(domain, id));
   ipcMain.handle('store:batchCreate', (e, domain, records) => store.batchCreate(domain, records));
   ipcMain.handle('store:upsertBy', (e, domain, keyField, record) => store.upsertBy(domain, keyField, record));
+  ipcMain.handle('store:transactionCreate', (e, taskId, domain, record) => store.transactionCreate(taskId, domain, record));
+  ipcMain.handle('store:transactionUpdate', (e, taskId, domain, id, patch) => store.transactionUpdate(taskId, domain, id, patch));
+  ipcMain.handle('store:transactionBatchCreate', (e, taskId, domain, records) => store.transactionBatchCreate(taskId, domain, records));
+  ipcMain.handle('store:transactionSaveSettings', (e, taskId, patch) => store.transactionSaveSettings(taskId, patch));
+  ipcMain.handle('store:rollbackTask', (e, taskId) => store.rollbackTask(taskId));
+  ipcMain.handle('store:commitTask', (e, taskId) => store.commitTask(taskId));
   ipcMain.handle('store:getSettings', () => store.getSettings());
   ipcMain.handle('store:saveSettings', (e, patch) => store.saveSettings(patch));
   ipcMain.handle('store:getDataDir', () => store.getDataDirPath());

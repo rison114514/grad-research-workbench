@@ -90,6 +90,20 @@
     if (!DOMAINS.includes(domain)) throw new Error(`未知数据域: ${domain}`);
     return db[domain];
   };
+  const copy = (value) => value === undefined ? undefined : clone(value);
+  const sameValue = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  const sameFieldState = (record, field, hadField, value) => {
+    const hasField = Object.prototype.hasOwnProperty.call(record, field);
+    return hasField === hadField && (!hadField || sameValue(record[field], value));
+  };
+  const appendRollbackOps = (taskId, operations) => {
+    const task = db.agentTasks.find((item) => item.id === taskId);
+    if (!task || ['canceled', 'done'].includes(task.state)) return false;
+    task.rollbackOps = [...(task.rollbackOps || []), ...clone(operations || [])];
+    task.rollback = { state: 'recording', operationCount: task.rollbackOps.length };
+    save();
+    return true;
+  };
 
   const store = {
     async list(domain) { return clone(listRef(domain)); },
@@ -137,6 +151,91 @@
       items.push(item);
       save();
       return clone({ item, created: true });
+    },
+    async transactionCreate(taskId, domain, record) {
+      const item = { id: newId(), createdAt: iso(), ...clone(record) };
+      if (!appendRollbackOps(taskId, [{ type: 'create', domain, id: item.id }])) return null;
+      listRef(domain).push(item);
+      save();
+      return clone(item);
+    },
+    async transactionUpdate(taskId, domain, id, patch) {
+      const items = listRef(domain);
+      const index = items.findIndex((item) => item.id === id);
+      if (index < 0) return null;
+      const before = items[index];
+      const next = { ...before, ...clone(patch), updatedAt: iso() };
+      const fields = [...new Set([...Object.keys(patch || {}), 'updatedAt'])];
+      const changes = fields.map((field) => ({
+        field,
+        beforeHad: Object.prototype.hasOwnProperty.call(before, field),
+        before: copy(before[field]),
+        afterHad: Object.prototype.hasOwnProperty.call(next, field),
+        after: copy(next[field])
+      }));
+      if (!appendRollbackOps(taskId, [{ type: 'update', domain, id, changes }])) return null;
+      items[index] = next;
+      save();
+      return clone(next);
+    },
+    async transactionBatchCreate(taskId, domain, records) {
+      const created = (records || []).map((record) => ({ id: newId(), createdAt: iso(), ...clone(record) }));
+      if (!created.length) return [];
+      if (!appendRollbackOps(taskId, created.map((item) => ({ type: 'create', domain, id: item.id })))) return [];
+      listRef(domain).push(...created);
+      save();
+      return clone(created);
+    },
+    async transactionSaveSettings(taskId, patch) {
+      if (!db.settings.length) {
+        const item = { id: 'settings', ...clone(patch) };
+        if (!appendRollbackOps(taskId, [{ type: 'create', domain: 'settings', id: item.id }])) return null;
+        db.settings.push(item);
+        save();
+        return clone(item);
+      }
+      return this.transactionUpdate(taskId, 'settings', db.settings[0].id, patch);
+    },
+    async rollbackTask(taskId) {
+      const task = db.agentTasks.find((item) => item.id === taskId);
+      if (!task || task.state !== 'canceled') return { ok: false, operationCount: 0, restoredFields: 0, removedRecords: 0, conflicts: 0 };
+      const operations = clone(task.rollbackOps || []);
+      let restoredFields = 0;
+      let removedRecords = 0;
+      let conflicts = 0;
+      for (const operation of [...operations].reverse()) {
+        const items = listRef(operation.domain);
+        const index = items.findIndex((item) => item.id === operation.id);
+        if (operation.type === 'create') {
+          if (index >= 0) { items.splice(index, 1); removedRecords += 1; }
+          continue;
+        }
+        if (operation.type !== 'update' || index < 0) { conflicts += 1; continue; }
+        const current = items[index];
+        for (const change of operation.changes || []) {
+          if (sameFieldState(current, change.field, change.afterHad, change.after)) {
+            if (change.beforeHad) current[change.field] = copy(change.before);
+            else delete current[change.field];
+            restoredFields += 1;
+          } else if (change.field !== 'updatedAt' && !sameFieldState(current, change.field, change.beforeHad, change.before)) {
+            conflicts += 1;
+          }
+        }
+      }
+      task.rollbackOps = [];
+      const state = conflicts ? 'partial' : 'rolled_back';
+      task.rollback = { state, operationCount: operations.length, restoredFields, removedRecords, conflicts, completedAt: iso() };
+      save();
+      return clone({ ok: conflicts === 0, state, operationCount: operations.length, restoredFields, removedRecords, conflicts });
+    },
+    async commitTask(taskId) {
+      const task = db.agentTasks.find((item) => item.id === taskId);
+      if (!task) return false;
+      const operationCount = (task.rollbackOps || []).length;
+      task.rollbackOps = [];
+      task.rollback = { state: 'committed', operationCount, completedAt: iso() };
+      save();
+      return true;
     },
     async getSettings() { return clone(db.settings[0] || {}); },
     async saveSettings(patch) {

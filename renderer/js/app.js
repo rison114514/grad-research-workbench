@@ -169,6 +169,54 @@ const App = {
     this.resetNavProjection();
   },
 
+  initAssistantAvatarMotion(assistantToggle) {
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) return;
+
+    const later = (fn, min, max) => setTimeout(fn, min + Math.random() * (max - min));
+    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const frame = (name) => assistantToggle.querySelector(`[data-avatar-frame="${name}"]`);
+    const neutralFrame = frame('blink-000');
+    const blinkFrames = Array.from({ length: 20 }, (_, index) => {
+      const amount = String((index + 1) * 5).padStart(3, '0');
+      return frame(`blink-${amount}`);
+    });
+    let activeFrame = neutralFrame;
+    let animating = false;
+
+    const showFrame = (nextFrame) => {
+      if (!nextFrame || nextFrame === activeFrame) return;
+      activeFrame?.classList.remove('is-active');
+      nextFrame.classList.add('is-active');
+      activeFrame = nextFrame;
+    };
+    const play = async (frames, stepMs, holdMs) => {
+      if (animating || frames.some((item) => !item)) return false;
+      animating = true;
+      try {
+        for (const item of frames) {
+          showFrame(item);
+          await delay(stepMs);
+        }
+        await delay(holdMs);
+        for (let i = frames.length - 2; i >= 0; i -= 1) {
+          showFrame(frames[i]);
+          await delay(stepMs);
+        }
+        showFrame(neutralFrame);
+        return true;
+      } finally {
+        animating = false;
+      }
+    };
+    const blink = async () => {
+      await play(blinkFrames, 10, 38);
+      later(() => { void blink(); }, 3200, 6800);
+    };
+
+    later(() => { void blink(); }, 1800, 3600);
+  },
+
   async init() {
     const settings = await window.api.store.getSettings();
     this.state.settings = settings;
@@ -179,6 +227,7 @@ const App = {
     this.initSidebarToggle();
     this.initNavProjection();
     const assistantToggle = document.getElementById('assistantToggle');
+    this.initAssistantAvatarMotion(assistantToggle);
     assistantToggle.addEventListener('click', () => window.Assistant.open());
     assistantToggle.addEventListener('pointermove', (e) => {
       const rect = assistantToggle.getBoundingClientRect();

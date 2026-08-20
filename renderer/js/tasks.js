@@ -132,12 +132,15 @@ const Tasks = {
     App.toast('正在生成可审核的执行计划…');
     try {
       await AgentTasks.update(taskId, 28, '生成执行步骤');
+      if (AgentTasks.isCanceled(taskId)) return;
       const r = await window.api.ai.splitTask(t.title);
+      if (AgentTasks.isCanceled(taskId)) return;
       if (!r.ok) throw new Error(r.error || '计划生成失败');
       const items = (r.items || []).filter(Boolean).slice(0, 8);
       if (items.length < 2) throw new Error('生成的执行步骤不足，请重试');
       const checks = this.checkPlan(items);
       await AgentTasks.update(taskId, 48, '检查步骤可执行性', { validation: checks });
+      if (AgentTasks.isCanceled(taskId)) return;
       this.splitDraft = {
         taskId: id, agentTaskId: taskId, source: r.source,
         goal: r.goal || `完成「${t.title}」并形成可验收结果`,
@@ -148,8 +151,10 @@ const Tasks = {
         summary: `已生成 ${items.length} 个执行步骤，等待确认后应用。`,
         plan: { taskId: id, source: r.source, goal: this.splitDraft.goal, deliverable: this.splitDraft.deliverable, items }
       });
+      if (AgentTasks.isCanceled(taskId)) { this.splitDraft = null; return; }
       this.openSplitPreview();
     } catch (error) {
+      if (AgentTasks.isCanceled(taskId)) return;
       await AgentTasks.needsInput(taskId, '计划生成失败，需要用户处理', error.message);
       App.toast(error.message || '拆解失败', 'error');
     }
@@ -202,6 +207,12 @@ const Tasks = {
     if (!this.splitDraft) return;
     this.syncSplitInputs();
     const draft = this.splitDraft;
+    if (AgentTasks.isCanceled(draft.agentTaskId)) {
+      this.splitDraft = null;
+      Modal.close('splitPlanModal');
+      App.toast('任务已取消，计划未应用', 'info');
+      return;
+    }
     const parent = this.current.find((task) => task.id === draft.taskId);
     const checks = this.checkPlan(draft.items);
     if (!parent || checks.some((check) => !check.passed)) {
@@ -211,21 +222,35 @@ const Tasks = {
     }
     const mode = document.querySelector('input[name="splitApplyMode"]:checked').value;
     await AgentTasks.update(draft.agentTaskId, 82, '应用已确认的执行计划', { state: 'running', validation: checks });
+    if (AgentTasks.isCanceled(draft.agentTaskId)) return;
     const splitPlan = { goal: draft.goal, deliverable: draft.deliverable, items: draft.items, mode, confirmedAt: new Date().toISOString() };
     if (mode === 'children') {
       for (const title of draft.items) {
-        await window.api.store.create('tasks', {
+        if (AgentTasks.isCanceled(draft.agentTaskId)) break;
+        await AgentTasks.createRecord(draft.agentTaskId, 'tasks', {
           title, priority: parent.priority, dueDate: parent.dueDate, status: 'todo', completedAt: null,
           note: `源自任务：${parent.title}`, projectId: parent.projectId || null, parentTaskId: parent.id, aiSplit: null
         });
       }
-      await window.api.store.update('tasks', parent.id, { splitPlan, aiSplit: draft.items });
+      if (AgentTasks.isCanceled(draft.agentTaskId)) {
+        this.splitDraft = null;
+        Modal.close('splitPlanModal');
+        App.toast('任务已取消，计划相关变更已恢复', 'info');
+        return;
+      }
+      await AgentTasks.updateRecord(draft.agentTaskId, 'tasks', parent.id, { splitPlan, aiSplit: draft.items });
     } else if (mode === 'checklist') {
-      await window.api.store.update('tasks', parent.id, { splitPlan, aiSplit: draft.items });
+      await AgentTasks.updateRecord(draft.agentTaskId, 'tasks', parent.id, { splitPlan, aiSplit: draft.items });
     } else {
-      await window.api.store.update('tasks', parent.id, { splitPlan });
+      await AgentTasks.updateRecord(draft.agentTaskId, 'tasks', parent.id, { splitPlan });
+    }
+    if (AgentTasks.isCanceled(draft.agentTaskId)) {
+      this.splitDraft = null;
+      Modal.close('splitPlanModal');
+      return;
     }
     await AgentTasks.complete(draft.agentTaskId, '执行计划已确认并应用', { summary: `${draft.items.length} 个步骤已按“${mode === 'children' ? '独立子任务' : mode === 'checklist' ? '检查清单' : '只保存计划'}”方式保存。` }, checks);
+    if (AgentTasks.isCanceled(draft.agentTaskId)) return;
     Modal.close('splitPlanModal');
     this.splitDraft = null;
     await this.render();

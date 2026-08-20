@@ -195,14 +195,22 @@ const Settings = {
       steps: ['验证读取权限', '获取文献条目与分类层级', '构建 Zotero 同步分类树', '按 DOI、标题与 Zotero Key 去重', '写入本地文献中心', '验证同步结果']
     });
     const result = document.getElementById('setZoteroResult');
+    const resultBefore = { text: result.textContent, color: result.style.color };
+    AgentTasks.onCancel(taskId, () => {
+      result.textContent = resultBefore.text;
+      result.style.color = resultBefore.color;
+    });
     result.textContent = '正在同步…';
     try {
       await AgentTasks.update(taskId, 20, '获取文献条目与分类层级');
+      if (AgentTasks.isCanceled(taskId)) return;
       const response = await window.api.zotero.sync(config);
+      if (AgentTasks.isCanceled(taskId)) return;
       if (!response.ok) throw new Error(response.error || 'Zotero 同步失败');
       await AgentTasks.update(taskId, 38, '构建 Zotero 同步分类树');
       // 1) 建树（幂等）：根分类「{用户名} 的 Zotero 同步」+ 按 zoteroKey 建 collection 层级
-      const colMap = await this.ensureZoteroTree(response.collections || [], response.userName || String(config.libraryId || ''));
+      const colMap = await this.ensureZoteroTree(response.collections || [], response.userName || String(config.libraryId || ''), taskId);
+      if (AgentTasks.isCanceled(taskId)) return;
       await AgentTasks.update(taskId, 52, '按 DOI、标题与 Zotero Key 去重');
       // 2) 条目去重 + 分类关联 + 批量写入
       const local = await window.api.store.list('literature');
@@ -211,6 +219,7 @@ const Settings = {
       let updated = 0;
       let skipped = 0;
       for (const remote of response.items || []) {
+        if (AgentTasks.isCanceled(taskId)) return;
         const doi = this.normalizeDoi(remote.doi);
         const title = this.normalizeTitle(remote.title);
         const existing = local.find((item) =>
@@ -228,7 +237,8 @@ const Settings = {
         };
         if (existing) {
           if (existing.zoteroVersion === remote.zoteroVersion && existing.zoteroKey === remote.zoteroKey) { skipped += 1; continue; }
-          await window.api.store.update('literature', existing.id, payload);
+          await AgentTasks.updateRecord(taskId, 'literature', existing.id, payload);
+          if (AgentTasks.isCanceled(taskId)) return;
           Object.assign(existing, payload);
           updated += 1;
         } else {
@@ -236,25 +246,31 @@ const Settings = {
         }
       }
       if (toCreate.length) {
-        const created = await window.api.store.batchCreate('literature', toCreate);
+        if (AgentTasks.isCanceled(taskId)) return;
+        const created = await AgentTasks.batchCreateRecords(taskId, 'literature', toCreate);
         local.push(...created);
         imported = created.length;
       }
       await AgentTasks.update(taskId, 86, '验证同步结果');
+      if (AgentTasks.isCanceled(taskId)) return;
       const validation = [
         { label: '未向 Zotero 发起写入请求', passed: true },
         { label: '完成重复条目检查', passed: true },
         { label: '本地导入结果可追踪', passed: imported + updated + skipped === (response.items || []).length }
       ];
       const summary = `新增 ${imported} 条，更新 ${updated} 条，跳过 ${skipped} 条重复或未变化记录。`;
-      await window.api.store.saveSettings({ zoteroLastSyncAt: new Date().toISOString(), zoteroLibraryVersion: response.libraryVersion || null });
+      await AgentTasks.saveSettings(taskId, { zoteroLastSyncAt: new Date().toISOString(), zoteroLibraryVersion: response.libraryVersion || null });
+      if (AgentTasks.isCanceled(taskId)) return;
       await AgentTasks.complete(taskId, 'Zotero 只读同步完成', { summary }, validation);
+      if (AgentTasks.isCanceled(taskId)) return;
       result.textContent = summary;
       result.style.color = '#278a4f';
       if (window.Literature) await window.Literature.render();
       App.toast(`Zotero 同步完成：${summary}`, 'ok');
     } catch (error) {
+      if (AgentTasks.isCanceled(taskId)) return;
       await AgentTasks.needsInput(taskId, 'Zotero 同步需要处理', error.message);
+      if (AgentTasks.isCanceled(taskId)) return;
       result.textContent = error.message;
       result.style.color = 'var(--red)';
       App.toast(error.message, 'error');
@@ -262,37 +278,49 @@ const Settings = {
   },
 
   /** 构建 Zotero 同步分类树（幂等：重复同步不重复建节点），返回 zoteroKey → 本地分类 id */
-  async ensureZoteroTree(collections, userName) {
+  async ensureZoteroTree(collections, userName, taskId = null) {
+    if (taskId && AgentTasks.isCanceled(taskId)) return new Map();
     const cols = await window.api.store.list('litCollections');
     const rootName = `${userName} 的 Zotero 同步`;
     let root = cols.find((c) => c.source === 'zotero' && c.zoteroKey === 'ROOT');
     if (!root) {
-      root = await window.api.store.create('litCollections', { name: rootName, parentId: null, order: 0, source: 'zotero', zoteroKey: 'ROOT', readOnly: true });
+      root = taskId
+        ? await AgentTasks.createRecord(taskId, 'litCollections', { name: rootName, parentId: null, order: 0, source: 'zotero', zoteroKey: 'ROOT', readOnly: true })
+        : await window.api.store.create('litCollections', { name: rootName, parentId: null, order: 0, source: 'zotero', zoteroKey: 'ROOT', readOnly: true });
+      if (!root) return new Map();
       cols.push(root);
     } else if (root.name !== rootName) {
-      await window.api.store.update('litCollections', root.id, { name: rootName });
+      if (taskId) await AgentTasks.updateRecord(taskId, 'litCollections', root.id, { name: rootName });
+      else await window.api.store.update('litCollections', root.id, { name: rootName });
     }
     const map = new Map();
     const nodes = {};
     // 第一轮：按 zoteroKey 幂等建节点（parentId 暂不设置）
     for (const c of collections || []) {
+      if (taskId && AgentTasks.isCanceled(taskId)) return map;
       let local = cols.find((x) => x.source === 'zotero' && x.zoteroKey === c.key);
       if (!local) {
-        local = await window.api.store.create('litCollections', { name: c.name, parentId: null, order: 0, source: 'zotero', zoteroKey: c.key, readOnly: true });
+        local = taskId
+          ? await AgentTasks.createRecord(taskId, 'litCollections', { name: c.name, parentId: null, order: 0, source: 'zotero', zoteroKey: c.key, readOnly: true })
+          : await window.api.store.create('litCollections', { name: c.name, parentId: null, order: 0, source: 'zotero', zoteroKey: c.key, readOnly: true });
+        if (!local) return map;
         cols.push(local);
       } else if (local.name !== c.name) {
-        await window.api.store.update('litCollections', local.id, { name: c.name });
+        if (taskId) await AgentTasks.updateRecord(taskId, 'litCollections', local.id, { name: c.name });
+        else await window.api.store.update('litCollections', local.id, { name: c.name });
       }
       nodes[c.key] = local.id;
       map.set(c.key, local.id);
     }
     // 第二轮：设置父子关系（顶层挂根分类下）
     for (const c of collections || []) {
+      if (taskId && AgentTasks.isCanceled(taskId)) return map;
       const localId = nodes[c.key];
       const parentId = c.parentKey && nodes[c.parentKey] ? nodes[c.parentKey] : root.id;
       const cur = cols.find((x) => x.id === localId);
       if (cur && cur.parentId !== parentId) {
-        await window.api.store.update('litCollections', localId, { parentId });
+        if (taskId) await AgentTasks.updateRecord(taskId, 'litCollections', localId, { parentId });
+        else await window.api.store.update('litCollections', localId, { parentId });
       }
     }
     return map;

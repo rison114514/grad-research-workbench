@@ -5,6 +5,7 @@ const AgentTasks = {
   tasks: [],
   activeId: null,
   filter: 'all',
+  cancelHandlers: new Map(),
 
   async init() {
     await this.load();
@@ -33,6 +34,7 @@ const AgentTasks = {
       const action = event.target.closest('[data-task-action]')?.dataset.taskAction;
       if (action === 'resume-plan') this.resumePlan();
       if (action === 'resolve') this.resolveCurrent();
+      if (action === 'cancel') this.cancelCurrent();
     });
     document.getElementById('agentTaskClear').addEventListener('click', () => this.clearCompleted());
   },
@@ -59,7 +61,9 @@ const AgentTasks = {
       sourceRef: options.sourceRef || null,
       result: null,
       validation: [],
-      error: null
+      error: null,
+      rollbackOps: [],
+      rollback: { state: 'recording', operationCount: 0 }
     });
     this.tasks.unshift(task);
     this.activeId = task.id;
@@ -68,9 +72,35 @@ const AgentTasks = {
     return task.id;
   },
 
+  async createRecord(taskId, domain, record) {
+    if (this.isCanceled(taskId)) return null;
+    return window.api.store.transactionCreate(taskId, domain, record);
+  },
+
+  async updateRecord(taskId, domain, id, patch) {
+    if (this.isCanceled(taskId)) return null;
+    return window.api.store.transactionUpdate(taskId, domain, id, patch);
+  },
+
+  async batchCreateRecords(taskId, domain, records) {
+    if (this.isCanceled(taskId)) return [];
+    return window.api.store.transactionBatchCreate(taskId, domain, records);
+  },
+
+  async saveSettings(taskId, patch) {
+    if (this.isCanceled(taskId)) return null;
+    return window.api.store.transactionSaveSettings(taskId, patch);
+  },
+
+  onCancel(taskId, handler) {
+    if (typeof handler === 'function') this.cancelHandlers.set(taskId, handler);
+  },
+
   async update(id, progress, detail, extra = {}) {
     const task = this.tasks.find((item) => item.id === id);
     if (!task) return null;
+    // 取消是终态。后台 Promise 可能稍后返回，不能让迟到的进度或完成回调覆盖取消状态。
+    if (task.state === 'canceled' && extra.state !== 'canceled') return task;
     const nextProgress = Math.max(0, Math.min(100, Number(progress) || 0));
     const steps = (extra.steps || task.steps || []).map((step) => ({ ...step }));
     if (!extra.steps && steps.length) {
@@ -85,6 +115,13 @@ const AgentTasks = {
     }
     const patch = { progress: nextProgress, detail: detail || task.detail, steps, state: extra.state || task.state, ...extra };
     const updated = await window.api.store.update('agentTasks', id, patch);
+    // 处理“更新已发出、用户随后取消”的竞态：重新固化本地已经生效的取消终态。
+    if (task.state === 'canceled' && extra.state !== 'canceled') {
+      await window.api.store.update('agentTasks', id, {
+        state: 'canceled', detail: task.detail, canceledAt: task.canceledAt
+      });
+      return task;
+    }
     Object.assign(task, updated || patch);
     this.resort();
     this.paint();
@@ -94,7 +131,14 @@ const AgentTasks = {
   },
 
   async complete(id, detail = '任务已完成', result = null, validation = []) {
-    return this.update(id, 100, detail, { state: 'done', result, validation, error: null });
+    const completed = await this.update(id, 100, detail, { state: 'done', result, validation, error: null });
+    if (completed && completed.state === 'done') {
+      await window.api.store.commitTask(id);
+      completed.rollbackOps = [];
+      completed.rollback = { state: 'committed' };
+      this.cancelHandlers.delete(id);
+    }
+    return completed;
   },
 
   async fail(id, detail = '任务执行失败', error = null) {
@@ -115,7 +159,63 @@ const AgentTasks = {
 
   async cancel(id, detail = '已由用户取消') {
     const task = this.tasks.find((item) => item.id === id);
-    return this.update(id, task ? task.progress : 0, detail, { state: 'canceled' });
+    if (!task || task.state === 'canceled' || task.state === 'done') return task || null;
+    const canceledAt = new Date().toISOString();
+    // 先同步更新内存，让仍在运行的流程能够立即在下一个检查点退出。
+    Object.assign(task, { state: 'canceled', detail, canceledAt });
+    this.resort();
+    this.paint();
+    this.renderList();
+    this.renderDetail();
+    const updated = await window.api.store.update('agentTasks', id, { state: 'canceled', detail, canceledAt });
+    if (updated && task.state === 'canceled') Object.assign(task, updated);
+    let rollback;
+    try {
+      rollback = await window.api.store.rollbackTask(id);
+    } catch (error) {
+      rollback = { ok: false, operationCount: 0, restoredFields: 0, removedRecords: 0, conflicts: 1, error: error.message };
+    }
+    const changed = (rollback.restoredFields || 0) + (rollback.removedRecords || 0);
+    const finalDetail = rollback.conflicts
+      ? `已取消；已恢复 ${changed} 项，${rollback.conflicts} 项因后续人工修改而保留`
+      : rollback.operationCount
+        ? '已取消，已恢复执行前状态'
+        : '已取消，执行期间未产生本地数据变更';
+    const finalPatch = { state: 'canceled', detail: finalDetail, canceledAt, rollback };
+    const finalized = await window.api.store.update('agentTasks', id, finalPatch);
+    Object.assign(task, finalized || finalPatch);
+    const handler = this.cancelHandlers.get(id);
+    this.cancelHandlers.delete(id);
+    if (handler) {
+      try { await handler(rollback); } catch (error) { console.error('[agent-task] 取消后界面恢复失败:', error); }
+    }
+    await this.refreshAfterRollback(task);
+    this.resort();
+    this.paint();
+    this.renderList();
+    this.renderDetail();
+    return task;
+  },
+
+  async refreshAfterRollback(task) {
+    if (!task) return;
+    if (task.kind === 'task-planning') {
+      if (window.Tasks?.splitDraft?.agentTaskId === task.id) window.Tasks.splitDraft = null;
+      window.Modal?.close('splitPlanModal');
+      if (window.Tasks?.render) await window.Tasks.render();
+      window.Board?.invalidate();
+    }
+    if (['literature-summary', 'pdf-literature', 'zotero-sync'].includes(task.kind) && window.Literature?.render) {
+      await window.Literature.render();
+    }
+  },
+
+  isCanceled(id) {
+    return this.tasks.some((task) => task.id === id && task.state === 'canceled');
+  },
+
+  isCancelable(task) {
+    return !!task && ['running', 'waiting_confirmation', 'needs_input', 'error'].includes(task.state);
   },
 
   resort() {
@@ -183,6 +283,16 @@ const AgentTasks = {
     if (!task) { box.innerHTML = '<div class="empty-tip">从左侧选择一项任务查看执行轨迹</div>'; return; }
     const steps = task.steps || [];
     const checks = task.validation || [];
+    const actions = [];
+    if (task.state === 'waiting_confirmation' && task.kind === 'task-planning') {
+      actions.push('<button class="btn btn-primary" data-task-action="resume-plan">继续审核计划</button>');
+    }
+    if (['needs_input', 'error'].includes(task.state)) {
+      actions.push('<button class="btn" data-task-action="resolve">标记为已人工处理</button>');
+    }
+    if (this.isCancelable(task)) {
+      actions.push('<button class="btn" data-task-action="cancel">取消</button>');
+    }
     box.innerHTML = `
       <div class="task-detail-head">
         <span class="task-state ${task.state}">${this.stateLabel(task.state)}</span>
@@ -195,8 +305,8 @@ const AgentTasks = {
       ${checks.length ? `<section><label>验证结果</label><div class="task-validation">${checks.map((check) => `<div class="${check.passed ? 'passed' : 'failed'}"><b>${check.passed ? 'PASS' : 'CHECK'}</b><span>${App.esc(check.label || check)}</span></div>`).join('')}</div></section>` : ''}
       ${task.result ? `<section><label>任务产物</label><div class="task-result">${App.markdown(typeof task.result === 'string' ? task.result : (task.result.summary || task.result.message || JSON.stringify(task.result, null, 2)))}</div></section>` : ''}
       ${task.error ? `<section class="task-error"><label>异常与介入建议</label><p>${App.esc(task.error)}</p></section>` : ''}
-      ${task.state === 'waiting_confirmation' && task.kind === 'task-planning' ? `<div class="task-detail-actions"><button class="btn btn-primary" data-task-action="resume-plan">继续审核计划</button></div>` : ''}
-      ${['needs_input', 'error'].includes(task.state) ? `<div class="task-detail-actions"><button class="btn" data-task-action="resolve">标记为已人工处理</button></div>` : ''}
+      ${task.state === 'canceled' && task.rollback ? `<section><label>取消恢复</label><strong>${task.rollback.conflicts ? `已恢复 ${(task.rollback.restoredFields || 0) + (task.rollback.removedRecords || 0)} 项；保留 ${task.rollback.conflicts} 项后续人工修改` : task.rollback.operationCount ? `已恢复 ${task.rollback.restoredFields || 0} 个字段，移除 ${task.rollback.removedRecords || 0} 条新增记录` : '执行期间未产生本地数据变更'}</strong></section>` : ''}
+      ${actions.length ? `<div class="task-detail-actions">${actions.join('')}</div>` : ''}
       <div class="task-detail-meta">创建 ${this.timeLabel(task.createdAt)} · 重试 ${task.retryCount || 0} 次</div>`;
   },
 
@@ -217,9 +327,22 @@ const AgentTasks = {
     App.toast('任务已标记为人工处理完成', 'ok');
   },
 
+  async cancelCurrent() {
+    const task = this.tasks.find((item) => item.id === this.activeId);
+    if (!this.isCancelable(task)) return;
+    if (!confirm('确定取消这个任务吗？\n本任务已写入的本地数据将恢复为执行前状态。')) return;
+    await this.cancel(task.id, '已由用户取消');
+    if (task.rollback?.conflicts) {
+      App.toast(`任务已取消并回滚；${task.rollback.conflicts} 项后续人工修改已保留`, 'info');
+    } else {
+      App.toast('任务已取消，已恢复执行前状态', 'ok');
+    }
+  },
+
   async clearCompleted() {
     const removable = this.tasks.filter((task) => ['done', 'canceled'].includes(task.state));
     await Promise.all(removable.map((task) => window.api.store.remove('agentTasks', task.id)));
+    removable.forEach((task) => this.cancelHandlers.delete(task.id));
     if (removable.some((task) => task.id === this.activeId)) this.activeId = null;
     await this.load();
     App.toast(`已清理 ${removable.length} 条完成记录`, 'ok');

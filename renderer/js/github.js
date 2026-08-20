@@ -178,19 +178,27 @@ const Github = {
     const box = document.getElementById('ghTrendList');
     const summaryBox = document.getElementById('ghWeeklySummary');
     const sourceBox = document.getElementById('ghTrendSource');
+    const viewBefore = { list: box.innerHTML, summary: summaryBox.innerHTML, source: sourceBox.innerHTML };
     const taskId = await AgentTasks.start(`GitHub 官网热榜 · ${lang ? lang.name : '全部'}`, '抓取官网 trending 页面', {
       kind: 'github-weekly', steps: ['抓取 github.com/trending', '解析热门仓库', '生成热榜']
+    });
+    AgentTasks.onCancel(taskId, () => {
+      box.innerHTML = viewBefore.list;
+      summaryBox.innerHTML = viewBefore.summary;
+      sourceBox.innerHTML = viewBefore.source;
     });
     box.innerHTML = `<div class="loading"><span class="spinner"></span>正在抓取 GitHub 官网热榜…</div>`;
     summaryBox.innerHTML = '';
     sourceBox.textContent = '';
     const r = await window.api.github.trending({ language, since });
+    if (AgentTasks.isCanceled(taskId)) return;
     if (!r.ok) {
       box.innerHTML = `<div class="empty-tip">${App.esc(r.error || '抓取失败')}</div>`;
       await AgentTasks.fail(taskId, r.error || '热榜抓取失败');
       return;
     }
     await AgentTasks.update(taskId, 66, '解析热门仓库');
+    if (AgentTasks.isCanceled(taskId)) return;
     sourceBox.innerHTML = `<span class="source-badge ${r.mock ? 'mock' : ''}">${App.esc(r.source || 'GitHub 官网')}${r.cached ? ' · 缓存' : ''}${r.mock ? ' · 浏览器预览' : ''}</span>`;
     this.renderWeeklySummary(r.summary);
     if (!r.items || r.items.length === 0) {

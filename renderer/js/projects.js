@@ -41,26 +41,51 @@ const Projects = {
     document.getElementById('pdName').textContent = p.name;
     document.getElementById('pdPath').textContent = p.path;
 
-    document.getElementById('projectTree').innerHTML = `<div class="loading"><span class="spinner"></span>正在扫描目录…</div>`;
-    document.getElementById('projectGraph').innerHTML = '';
+    const treeBox = document.getElementById('projectTree');
+    const graphBox = document.getElementById('projectGraph');
+    const viewBefore = {
+      tree: treeBox.innerHTML,
+      graph: graphBox.innerHTML,
+      graphOption: this.graphChart ? this.graphChart.getOption() : null,
+      treeCache: this.treeCache
+    };
 
     const taskId = await AgentTasks.start(`扫描 · ${p.name}`, '读取本地目录结构', {
       kind: 'project-scan', sourceRef: p.id,
       steps: ['读取本地目录结构', '构建文件索引', '生成项目关系图谱', '验证扫描结果']
     });
+    AgentTasks.onCancel(taskId, () => {
+      this.treeCache = viewBefore.treeCache;
+      treeBox.innerHTML = viewBefore.tree;
+      if (this.graphChart) this.graphChart.dispose();
+      this.graphChart = null;
+      graphBox.innerHTML = '';
+      if (viewBefore.graphOption) {
+        this.graphChart = echarts.init(graphBox);
+        this.graphChart.setOption(viewBefore.graphOption);
+      } else {
+        graphBox.innerHTML = viewBefore.graph;
+      }
+    });
+    treeBox.innerHTML = `<div class="loading"><span class="spinner"></span>正在扫描目录…</div>`;
+    graphBox.innerHTML = '';
     const scan = await window.api.fs.scanTree(p.path, 6);
+    if (AgentTasks.isCanceled(taskId)) return;
     if (!scan.ok) {
       document.getElementById('projectTree').innerHTML = `<div class="empty-tip">扫描失败：${App.esc(scan.error)}</div>`;
       await AgentTasks.fail(taskId, scan.error || '目录扫描失败');
       return;
     }
     await AgentTasks.update(taskId, 58, '构建目录树与文件索引');
+    if (AgentTasks.isCanceled(taskId)) return;
     this.treeCache = scan.tree;
     this.renderTree(scan.tree, 0);
 
     const g = await window.api.fs.buildGraph(p.path);
+    if (AgentTasks.isCanceled(taskId)) return;
     if (g.ok) {
       await AgentTasks.update(taskId, 86, '生成项目关系图谱');
+      if (AgentTasks.isCanceled(taskId)) return;
       this.renderGraph(g.graph);
       await AgentTasks.complete(taskId, `已索引 ${g.graph.nodes.length} 个节点`, { message: `目录扫描完成，共 ${g.graph.nodes.length} 个节点、${g.graph.links.length} 条关系。` }, [
         { label: '目录树可读取', passed: true }, { label: '关系图节点有效', passed: g.graph.nodes.length > 0 }

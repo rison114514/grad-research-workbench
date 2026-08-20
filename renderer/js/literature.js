@@ -658,23 +658,29 @@ ${doc}`;
     try {
       await AgentTasks.update(taskId, 34, '整理标题、作者与摘要');
       this.showProgress(34, '整理标题、作者与摘要');
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       const r = await window.api.ai.summarizeLiterature({
         title: l.title, authors: l.authors, venue: l.venue, year: l.year, doi: l.doi, abstract: l.abstract, fullText: l.pdfText
       });
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       await AgentTasks.update(taskId, 82, '生成结构化笔记');
       this.showProgress(82, '生成结构化笔记');
       if (!r.ok) throw new Error(r.error || '生成失败');
       const validation = this.validateSummary(r.content, l.pdfText || l.abstract || '', l.pdfText ? 'PDF 正文' : l.abstract ? '原文摘要' : '仅元数据');
-      await window.api.store.update('literature', l.id, { summary: r.content, summaryValidation: validation });
+      await AgentTasks.updateRecord(taskId, 'literature', l.id, { summary: r.content, summaryValidation: validation });
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       this.showProgress(100, '摘要已保存');
       if (validation.passed) {
         await AgentTasks.complete(taskId, '摘要已验证并保存', { summary: r.content }, validation.checks);
       } else {
         await AgentTasks.needsInput(taskId, '摘要已保存，但有检查项需要人工确认', validation.checks.filter((check) => !check.passed).map((check) => check.label).join('；'));
       }
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       App.toast(r.source === 'ai' ? 'AI 摘要已生成' : '已生成（本地模板，配置 AI 可自动填充）', r.source === 'ai' ? 'ok' : 'info');
     } catch (error) {
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       await AgentTasks.fail(taskId, error.message || '摘要生成失败');
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       App.toast(error.message || '生成失败', 'error');
     }
     await this.render();
@@ -716,52 +722,64 @@ ${doc}`;
     const file = await window.api.dialog.pickPdf();
     if (!file) return;
     const title = String(file.name || '未命名文献').replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ').trim();
-    const lit = await window.api.store.create('literature', {
+    const taskId = await AgentTasks.start(`解析 PDF · ${title}`, '归档 PDF 文献', {
+      kind: 'pdf-literature', goal: `提取「${title}」正文并生成有依据的结构化摘要`,
+      steps: ['归档 PDF 文献', '提取并清理正文', '生成结构化摘要', '验证摘要与来源', '保存文献记录']
+    });
+    const lit = await AgentTasks.createRecord(taskId, 'literature', {
       title, authors: '', venue: '', year: '', doi: '', abstract: '', tags: 'PDF', summary: null,
       pdfPath: file.path, pdfName: file.name, pdfSize: file.size
     });
-    await window.api.store.create('activity', { date: App.todayStr(), action: '文献', content: `导入 PDF：${title}` });
+    if (!lit || AgentTasks.isCanceled(taskId)) return;
+    await AgentTasks.update(taskId, 10, 'PDF 已归档，准备读取文件', { sourceRef: lit.id });
+    await AgentTasks.createRecord(taskId, 'activity', { date: App.todayStr(), action: '文献', content: `导入 PDF：${title}` });
+    if (AgentTasks.isCanceled(taskId)) return;
     this.activeId = lit.id;
     await this.render();
     App.toast('PDF 已归档，正在后台提取正文…', 'ok');
-    await this.processPdf(lit);
+    await this.processPdf(lit, taskId);
   },
 
-  async processPdf(lit) {
-    const taskId = await AgentTasks.start(`解析 PDF · ${lit.title}`, '读取 PDF 文件', {
-      kind: 'pdf-literature', sourceRef: lit.id, goal: `提取「${lit.title}」正文并生成有依据的结构化摘要`,
-      steps: ['读取 PDF 文件', '提取并清理正文', '生成结构化摘要', '验证摘要与来源', '保存文献记录']
-    });
+  async processPdf(lit, taskId) {
     try {
       await AgentTasks.update(taskId, 18, '提取并清理 PDF 正文');
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       const extracted = await window.api.pdf.extract(lit.pdfPath);
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       if (!extracted.ok) throw new Error(extracted.error || 'PDF 正文提取失败');
-      await window.api.store.update('literature', lit.id, {
+      await AgentTasks.updateRecord(taskId, 'literature', lit.id, {
         pdfText: extracted.text, pdfPages: extracted.pages, pdfChars: extracted.chars,
         extractionStatus: 'extracted', extractionTruncated: extracted.truncated
       });
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       await AgentTasks.update(taskId, 48, `已提取 ${extracted.pages || '未知'} 页，正在生成结构化摘要`);
       const response = await window.api.ai.summarizeLiterature({
         title: lit.title, authors: lit.authors, venue: lit.venue, year: lit.year, doi: lit.doi,
         abstract: lit.abstract, fullText: extracted.text
       });
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       if (!response.ok) throw new Error(response.error || '结构化摘要生成失败');
       await AgentTasks.update(taskId, 78, '验证摘要结构与原文依据');
       const validation = this.validateSummary(response.content, extracted.text, `PDF 正文 · ${extracted.pages || '未知'} 页`);
-      await window.api.store.update('literature', lit.id, {
+      await AgentTasks.updateRecord(taskId, 'literature', lit.id, {
         summary: response.content, summaryValidation: validation, summarySource: response.source,
         extractionStatus: 'complete'
       });
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       if (validation.passed) {
         await AgentTasks.complete(taskId, 'PDF 正文、摘要与验证均已完成', { summary: response.content }, validation.checks);
+        if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
         App.toast('PDF 摘要已生成并通过结构检查', 'ok');
       } else {
         await AgentTasks.needsInput(taskId, '摘要已生成，但需要人工复核', validation.checks.filter((check) => !check.passed).map((check) => check.label).join('；'));
+        if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
         App.toast('摘要已生成，部分验证项需要确认', 'info');
       }
     } catch (error) {
-      await window.api.store.update('literature', lit.id, { extractionStatus: 'error', extractionError: error.message });
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
+      await AgentTasks.updateRecord(taskId, 'literature', lit.id, { extractionStatus: 'error', extractionError: error.message });
       await AgentTasks.needsInput(taskId, 'PDF 处理需要人工介入', `${error.message}。可重新导入，或保留记录后手动填写摘要。`);
+      if (AgentTasks.isCanceled(taskId)) { await this.render(); return; }
       App.toast(error.message || 'PDF 处理失败', 'error');
     }
     await this.render();

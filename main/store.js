@@ -58,6 +58,20 @@ function newId() {
   return crypto.randomUUID();
 }
 
+function clone(value) {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sameFieldState(record, field, hadField, value) {
+  const hasField = Object.prototype.hasOwnProperty.call(record, field);
+  return hasField === hadField && (!hadField || sameValue(record[field], value));
+}
+
 /* ---------------- 通用 CRUD ---------------- */
 
 function list(domain) {
@@ -120,6 +134,158 @@ function upsertBy(domain, keyField, record) {
   listRef.push(item);
   persist(domain);
   return { item, created: true };
+}
+
+/* ---------------- Agent 任务事务与回滚 ---------------- */
+
+function agentTask(taskId) {
+  return load('agentTasks').find((item) => item.id === taskId) || null;
+}
+
+function appendRollbackOps(taskId, operations) {
+  const task = agentTask(taskId);
+  if (!task || ['canceled', 'done'].includes(task.state)) return false;
+  const next = [...(task.rollbackOps || []), ...clone(operations || [])];
+  task.rollbackOps = next;
+  task.rollback = { state: 'recording', operationCount: next.length };
+  persist('agentTasks');
+  return true;
+}
+
+/**
+ * 任务专用写入：先把反向操作持久化到 agentTasks，再写业务数据。
+ * 即使应用在两次落盘之间退出，之后执行回滚也不会漏掉已经发生的写入。
+ */
+function transactionCreate(taskId, domain, record) {
+  ensureDomain(domain);
+  if (domain === 'agentTasks') throw new Error('Agent 事务不能修改 agentTasks 数据域');
+  const item = { id: newId(), createdAt: new Date().toISOString(), ...record };
+  if (!appendRollbackOps(taskId, [{ type: 'create', domain, id: item.id }])) return null;
+  load(domain).push(item);
+  persist(domain);
+  return item;
+}
+
+function transactionBatchCreate(taskId, domain, records) {
+  ensureDomain(domain);
+  if (domain === 'agentTasks') throw new Error('Agent 事务不能修改 agentTasks 数据域');
+  const created = (records || []).map((record) => ({ id: newId(), createdAt: new Date().toISOString(), ...record }));
+  if (!created.length) return [];
+  const operations = created.map((item) => ({ type: 'create', domain, id: item.id }));
+  if (!appendRollbackOps(taskId, operations)) return [];
+  load(domain).push(...created);
+  persist(domain);
+  return created;
+}
+
+function transactionUpdate(taskId, domain, id, patch) {
+  ensureDomain(domain);
+  if (domain === 'agentTasks') throw new Error('Agent 事务不能修改 agentTasks 数据域');
+  const listRef = load(domain);
+  const idx = listRef.findIndex((item) => item.id === id);
+  if (idx === -1) return null;
+  const before = listRef[idx];
+  const next = { ...before, ...patch, updatedAt: new Date().toISOString() };
+  const fields = [...new Set([...Object.keys(patch || {}), 'updatedAt'])];
+  const changes = fields.map((field) => ({
+    field,
+    beforeHad: Object.prototype.hasOwnProperty.call(before, field),
+    before: clone(before[field]),
+    afterHad: Object.prototype.hasOwnProperty.call(next, field),
+    after: clone(next[field])
+  }));
+  if (!appendRollbackOps(taskId, [{ type: 'update', domain, id, changes }])) return null;
+  listRef[idx] = next;
+  persist(domain);
+  return next;
+}
+
+function transactionSaveSettings(taskId, patch) {
+  const listRef = load('settings');
+  if (!listRef.length) {
+    const item = { id: 'settings', ...patch };
+    if (!appendRollbackOps(taskId, [{ type: 'create', domain: 'settings', id: item.id }])) return null;
+    listRef.push(item);
+    persist('settings');
+    return item;
+  }
+  return transactionUpdate(taskId, 'settings', listRef[0].id, patch);
+}
+
+/**
+ * 逆序撤销任务写入。若同一字段在任务写入后又被用户修改，则保留用户的新值并记录冲突，
+ * 避免为了回滚后台任务而覆盖并发的人工编辑。
+ */
+function rollbackTask(taskId) {
+  const task = agentTask(taskId);
+  if (!task) return { ok: false, error: '任务不存在', operationCount: 0, restoredFields: 0, removedRecords: 0, conflicts: 0 };
+  if (task.state !== 'canceled') return { ok: false, error: '只有已取消的任务可以回滚', operationCount: 0, restoredFields: 0, removedRecords: 0, conflicts: 0 };
+
+  const operations = clone(task.rollbackOps || []);
+  const touchedDomains = new Set();
+  let restoredFields = 0;
+  let removedRecords = 0;
+  let conflicts = 0;
+
+  for (const operation of operations.reverse()) {
+    if (!operation || !DOMAINS.includes(operation.domain) || operation.domain === 'agentTasks') {
+      conflicts += 1;
+      continue;
+    }
+    const listRef = load(operation.domain);
+    const idx = listRef.findIndex((item) => item.id === operation.id);
+    if (operation.type === 'create') {
+      if (idx >= 0) {
+        listRef.splice(idx, 1);
+        touchedDomains.add(operation.domain);
+        removedRecords += 1;
+      }
+      continue;
+    }
+    if (operation.type !== 'update' || idx < 0) {
+      conflicts += 1;
+      continue;
+    }
+
+    const current = listRef[idx];
+    let changed = false;
+    for (const change of operation.changes || []) {
+      if (sameFieldState(current, change.field, change.afterHad, change.after)) {
+        if (change.beforeHad) current[change.field] = clone(change.before);
+        else delete current[change.field];
+        restoredFields += 1;
+        changed = true;
+      } else if (change.field !== 'updatedAt' && !sameFieldState(current, change.field, change.beforeHad, change.before)) {
+        conflicts += 1;
+      }
+    }
+    if (changed) touchedDomains.add(operation.domain);
+  }
+
+  touchedDomains.forEach((domain) => persist(domain));
+  const completedAt = new Date().toISOString();
+  task.rollbackOps = [];
+  const state = conflicts ? 'partial' : 'rolled_back';
+  task.rollback = {
+    state,
+    operationCount: operations.length,
+    restoredFields,
+    removedRecords,
+    conflicts,
+    completedAt
+  };
+  persist('agentTasks');
+  return { ok: conflicts === 0, state, operationCount: operations.length, restoredFields, removedRecords, conflicts, completedAt };
+}
+
+function commitTask(taskId) {
+  const task = agentTask(taskId);
+  if (!task) return false;
+  const operationCount = (task.rollbackOps || []).length;
+  task.rollbackOps = [];
+  task.rollback = { state: 'committed', operationCount, completedAt: new Date().toISOString() };
+  persist('agentTasks');
+  return true;
 }
 
 /* ---------------- 设置 ---------------- */
@@ -198,6 +364,8 @@ function taskStats() {
 module.exports = {
   DOMAINS,
   list, get, create, update, remove, batchCreate, upsertBy,
+  transactionCreate, transactionUpdate, transactionBatchCreate, transactionSaveSettings,
+  rollbackTask, commitTask,
   getSettings, saveSettings,
   getDataDirPath, backupAll,
   taskStats,
