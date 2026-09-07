@@ -234,8 +234,8 @@ const Settings = {
       const cfg = await this.saveVoice(false);
       const selected = (this.voiceProfiles || []).find((item) => item.id === cfg.tts.profileId);
       const response = await window.api.voice.autoConfigureCosy({
-        sourceProfileId: cfg.tts.profileId || 'builtin-Xaihi',
-        name: selected?.name || 'Xaihi',
+        sourceProfileId: 'builtin-Xaihi',
+        name: selected?.name?.includes('Xaihi') ? selected.name : 'Xaihi',
         audioUrl: document.getElementById('setVoiceRemoteUrl').value.trim()
       });
       if (!response?.configured) {

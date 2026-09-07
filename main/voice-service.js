@@ -25,8 +25,9 @@ const WHISPER_VAD_URL = `https://huggingface.co/ggml-org/whisper-vad/resolve/mai
 // Keep the legacy profile id and local speaker id for existing user data and
 // fine-tuned checkpoints. Xaihi is the public-facing English name.
 const BUILTIN_XAIHI_PROFILE_ID = 'builtin-Xaihi';
-const BUILTIN_XAIHI_REFERENCE_TEXT = '真知会自我捍卫，请为我下达指令。';
+const BUILTIN_XAIHI_REFERENCE_TEXT = '经过这段时间的相处，我与管理员的关系越发亲近，这时我应该展现友好、亲和、信任的态度。';
 const BUILTIN_XAIHI_PUBLIC_URL = 'https://raw.githubusercontent.com/rison114514/grad-research-workbench/main/renderer/assets/voice/Xaihi-reference.wav';
+const BUILTIN_XAIHI_REFERENCE_REVISION = 'long-11s-v1';
 
 function builtinXaihiProfile() {
   return {
@@ -37,6 +38,7 @@ function builtinXaihiProfile() {
     referencePath: path.join(__dirname, '..', 'renderer', 'assets', 'voice', 'Xaihi-reference.wav'),
     referenceText: BUILTIN_XAIHI_REFERENCE_TEXT,
     audioUrl: BUILTIN_XAIHI_PUBLIC_URL,
+    referenceRevision: BUILTIN_XAIHI_REFERENCE_REVISION,
     model: LOCAL_TTS_MODEL
   };
 }
@@ -722,25 +724,23 @@ async function queryCosyVoice(config, voiceId) {
   }
 }
 
-async function findReusableCosyVoice(config, prefix, targetModel) {
-  const localProfiles = store.list('voiceProfiles').filter((item) => item.provider === 'cosy' && item.prefix === prefix);
+async function findReusableCosyVoice(config, prefix, targetModel, referenceRevision) {
+  const localProfiles = store.list('voiceProfiles').filter((item) =>
+    item.provider === 'cosy' && item.prefix === prefix && item.referenceRevision === referenceRevision
+  );
   for (const profile of localProfiles.slice().reverse()) {
     const remote = await queryCosyVoice(config, profile.voiceId);
     if (remote && (!remote.target_model || remote.target_model === targetModel)) return { profile, voiceId: profile.voiceId };
   }
-  const result = await cosyVoiceRequest(config, { action: 'list_voice', prefix, page_index: 0, page_size: 100 });
-  const voices = result.json?.output?.voice_list || [];
-  for (const voice of voices.slice().reverse()) {
-    const voiceId = voice.voice_id || voice.voiceId;
-    if (!voiceId || (voice.status && !/ok|ready|success/i.test(voice.status))) continue;
-    const remote = await queryCosyVoice(config, voiceId);
-    if (!remote || !remote.target_model || remote.target_model === targetModel) return { profile: null, voiceId };
-  }
+  // The cloud list API does not return which reference-audio revision created a
+  // voice. Reusing an untracked remote id here would keep an older short sample.
+  // Once a revision is configured locally, subsequent clicks remain idempotent.
+  await cosyVoiceRequest(config, { action: 'list_voice', prefix, page_index: 0, page_size: 100 });
   return null;
 }
 
-function saveCosyProfile({ existing, name, voiceId, audioUrl, model, prefix, sourceProfileId }) {
-  const record = { name, provider: 'cosy', voiceId, audioUrl, model, prefix, sourceProfileId };
+function saveCosyProfile({ existing, name, voiceId, audioUrl, model, prefix, sourceProfileId, referenceRevision }) {
+  const record = { name, provider: 'cosy', voiceId, audioUrl, model, prefix, sourceProfileId, referenceRevision };
   return existing?.id ? store.update('voiceProfiles', existing.id, record) : store.create('voiceProfiles', record);
 }
 
@@ -752,10 +752,14 @@ async function autoConfigureCosy(options = {}) {
   const name = String(options.name || source.name || 'Xaihi').trim().slice(0, 40) || 'Xaihi';
   const prefix = cosyVoicePrefix(name);
   const targetModel = config.cosyModel || 'cosyvoice-v2';
-  const audioUrl = String(options.audioUrl || source.audioUrl || '').trim();
+  const customAudioUrl = String(options.audioUrl || '').trim();
+  const audioUrl = String(customAudioUrl || source.audioUrl || '').trim();
+  const referenceRevision = String(options.referenceRevision || (customAudioUrl
+    ? `url-${crypto.createHash('sha1').update(customAudioUrl).digest('hex').slice(0, 10)}`
+    : source.referenceRevision || 'custom-v1'));
   if (!/^https:\/\//i.test(audioUrl)) throw new Error('Xaihi 云端克隆需要可公开访问的 HTTPS 参考音频地址');
 
-  let reusable = await findReusableCosyVoice(config, prefix, targetModel);
+  let reusable = await findReusableCosyVoice(config, prefix, targetModel, referenceRevision);
   let voiceId = reusable?.voiceId || '';
   let profile = reusable?.profile || null;
   let reused = !!voiceId;
@@ -769,7 +773,7 @@ async function autoConfigureCosy(options = {}) {
 
   profile = saveCosyProfile({
     existing: profile, name: 'Xaihi · 阿里云克隆音色', voiceId,
-    audioUrl, model: targetModel, prefix, sourceProfileId: source.id
+    audioUrl, model: targetModel, prefix, sourceProfileId: source.id, referenceRevision
   });
   const nextTts = {
     ...config, provider: 'cosy', profileId: profile.id,

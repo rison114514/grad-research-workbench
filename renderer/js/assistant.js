@@ -480,10 +480,13 @@ const Assistant = {
     return AgentDraftMemory.extractDailyTemplateDraft(content) || { kind: 'text' };
   },
 
-  /** 向语音层发送结构化事件；普通聊天目标没有 emit，因此不改变既有行为。 */
+  /** 向统一语音层发送结构化事件；调用方自带 emit 时由其窗口处理，否则交给主窗口 AgentTts。 */
   emit(target, type, text = '', extra = {}) {
-    if (!target || typeof target.emit !== 'function') return;
-    try { target.emit({ type, text: String(text || ''), ...extra }); } catch (error) { /* 语音 UI 不得阻断 Agent */ }
+    const event = { type, text: String(text || ''), ...extra };
+    try {
+      if (target && typeof target.emit === 'function') target.emit(event);
+      else window.AgentTts?.handleEvent(event);
+    } catch (error) { /* 语音 UI 不得阻断 Agent */ }
   },
 
   /** 规划请求被模型路由成 createDailyTemplate 时，只展示并保留草案，不弹执行卡、不写入。 */

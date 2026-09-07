@@ -144,6 +144,18 @@ test('Agent TTS 回复提供独立开关且默认关闭，不影响手动试听'
   assert.match(html, /id="setVoiceAgentTts"/);
 });
 
+test('主智能助理、应用内宠物和桌面宠物共用 Agent TTS 事件通道', () => {
+  const assistant = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'assistant.js'), 'utf8');
+  const petFloating = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'pet-floating.js'), 'utf8');
+  const agentTts = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'agent-tts.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
+  assert.match(assistant, /window\.AgentTts\?\.handleEvent\(event\)/);
+  assert.match(petFloating, /emit: \(event\) => window\.VoiceController/);
+  assert.match(agentTts, /agentReplyEnabled !== true/);
+  assert.match(agentTts, /window\.api\.voice\.synthesize/);
+  assert.match(html, /js\/agent-tts\.js/);
+});
+
 test('悬浮球语音手势与人工确认门禁已接入', () => {
   const pet = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'pet-floating.js'), 'utf8');
   const voice = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'js', 'voice-controller.js'), 'utf8');
@@ -205,7 +217,7 @@ test('塞西参考音色随应用内置，并作为本地 TTS 默认档案', () 
   assert.equal(fs.existsSync(reference), true);
   assert.ok(fs.statSync(reference).size > 0);
   assert.match(service, /BUILTIN_XAIHI_PROFILE_ID = 'builtin-Xaihi'/);
-  assert.match(service, /真知会自我捍卫，请为我下达指令/);
+  assert.match(service, /经过这段时间的相处，我与管理员的关系越发亲近/);
   assert.match(service, /provider === 'local' \? builtinXaihiProfile\(\) : null/);
   assert.match(settings, /Xaihi · 塞西内置参考音色/);
   assert.match(html, /Workspace ID（专属工作空间可选）/);
@@ -220,6 +232,9 @@ test('Xaihi 云端音色支持一键检测、复用、配置 Voice ID 与试听'
   assert.match(service, /action: 'list_voice'/);
   assert.match(service, /action: 'query_voice'/);
   assert.match(service, /action: 'create_voice'/);
+  assert.match(service, /BUILTIN_XAIHI_REFERENCE_REVISION = 'long-11s-v1'/);
+  assert.match(service, /item\.referenceRevision === referenceRevision/);
+  assert.match(service, /crypto\.createHash\('sha1'\)\.update\(customAudioUrl\)/);
   assert.match(service, /BadRequest\\\.InputDownloadFailed/);
   assert.match(service, /阿里云无法下载参考音频/);
   assert.match(service, /cosyVoiceId: voiceId/);

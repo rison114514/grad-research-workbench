@@ -291,7 +291,7 @@ const PetFloat = {
       renderMessage: (role, content) => this.appendMsg(role, content),
       record: (role, content, extra) => this.recordMsg(role, content, extra),
       scroll: () => { const b = document.getElementById('petChatBody'); if (b) b.scrollTop = b.scrollHeight; },
-      emit: voiceOrigin ? (event) => window.VoiceController?.onAgentEvent(event, voiceCycle) : null,
+      emit: (event) => window.VoiceController?.onAgentEvent(event, voiceOrigin ? voiceCycle : window.VoiceController?.cycle),
       // 关键：把宠物自己的会话（pet-chat 历史 + 摘要）交给 Agent 上下文系统，与主智能助手行为一致
       getSession: () => ({ sessionId: this.state.sessionId, sessions: this.state.sessions, messages: this.state.messages })
     };
@@ -299,7 +299,7 @@ const PetFloat = {
       await window.Assistant.send(value, petTarget);
     } catch (err) {
       this.appendMsg('ai', `> ⚠️ ${App.esc((err && err.message) || '请求失败')}`);
-      if (voiceOrigin) window.VoiceController?.onAgentEvent({ type: 'error', text: (err && err.message) || '请求失败' }, voiceCycle);
+      window.VoiceController?.onAgentEvent({ type: 'error', text: (err && err.message) || '请求失败' }, voiceOrigin ? voiceCycle : window.VoiceController?.cycle);
     }
   }
 };
