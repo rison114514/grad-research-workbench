@@ -26,7 +26,9 @@ const WHISPER_VAD_URL = `https://huggingface.co/ggml-org/whisper-vad/resolve/mai
 // fine-tuned checkpoints. Xaihi is the public-facing English name.
 const BUILTIN_XAIHI_PROFILE_ID = 'builtin-Xaihi';
 const BUILTIN_XAIHI_REFERENCE_TEXT = '经过这段时间的相处，我与管理员的关系越发亲近，这时我应该展现友好、亲和、信任的态度。';
-const BUILTIN_XAIHI_PUBLIC_URL = 'https://raw.githubusercontent.com/rison114514/grad-research-workbench/main/renderer/assets/voice/Xaihi-reference.wav?rev=long-11s-v1';
+// Use an immutable CDN URL here. Alibaba Cloud fetches this URL server-side and
+// cannot reliably reach raw.githubusercontent.com from every region.
+const BUILTIN_XAIHI_PUBLIC_URL = 'https://cdn.jsdelivr.net/gh/rison114514/grad-research-workbench@868726f/renderer/assets/voice/Xaihi-reference.wav';
 const BUILTIN_XAIHI_REFERENCE_REVISION = 'long-11s-v1';
 
 function builtinXaihiProfile() {

@@ -217,6 +217,7 @@ test('塞西参考音色随应用内置，并作为本地 TTS 默认档案', () 
   assert.equal(fs.existsSync(reference), true);
   assert.ok(fs.statSync(reference).size > 0);
   assert.match(service, /BUILTIN_XAIHI_PROFILE_ID = 'builtin-Xaihi'/);
+  assert.match(service, /cdn\.jsdelivr\.net\/gh\/rison114514\/grad-research-workbench@868726f\/renderer\/assets\/voice\/Xaihi-reference\.wav/);
   assert.match(service, /经过这段时间的相处，我与管理员的关系越发亲近/);
   assert.match(service, /provider === 'local' \? builtinXaihiProfile\(\) : null/);
   assert.match(settings, /Xaihi · 塞西内置参考音色/);
