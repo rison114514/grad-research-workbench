@@ -17,7 +17,7 @@ const Board = {
   },
 
   kanTasks(status) {
-    return this.tasks.filter((t) => t.status === status)
+    return this.tasks.filter((t) => t.status === status && !(window.TaskLifecycle && window.TaskLifecycle.isArchived(t)))
       .sort((a, b) => {
         const pr = { high: 0, medium: 1, low: 2 };
         if (pr[a.priority] !== pr[b.priority]) return pr[a.priority] - pr[b.priority];

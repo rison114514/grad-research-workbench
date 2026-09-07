@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; script-src 'self'; connect-src 'self' https://api.github.com https://api.zotero.org">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; script-src 'self'; connect-src 'self' https://api.github.com https://api.zotero.org">
   <title>科研工作台 · Graduate Research Workbench</title>
   <link rel="stylesheet" href="css/theme.css">
 </head>
@@ -97,6 +97,7 @@
             <button class="seg-btn" data-f="overdue">已逾期</button>
             <button class="seg-btn" data-f="high">高优先级</button>
             <button class="seg-btn" data-f="done">已完成</button>
+            <button class="seg-btn archive-filter" data-f="archive">归档 <span id="taskArchiveCount">0</span></button>
           </div>
         </div>
         <div class="task-list" id="taskList"></div>
@@ -243,16 +244,51 @@
               <button class="btn btn-danger" id="pdDelete">删除项目</button>
             </div>
           </div>
-          <div class="project-grid">
-            <div class="graph-panel">
-              <div class="chart-title">项目结构关系图谱</div>
-              <div class="chart tall" id="projectGraph"></div>
+          <div class="project-workspace" id="projectWorkspace">
+            <div class="project-grid">
+              <div class="graph-panel">
+                <div class="chart-title">项目结构关系图谱</div>
+                <div class="chart tall" id="projectGraph"></div>
+              </div>
+              <div class="tree-panel">
+                <div class="chart-title">目录结构</div>
+                <div class="tree" id="projectTree"></div>
+              </div>
             </div>
-            <div class="tree-panel">
-              <div class="chart-title">目录结构</div>
-              <div class="tree" id="projectTree"></div>
-              <div class="file-preview" id="filePreview"></div>
-            </div>
+            <aside class="project-file-inspector" id="fileInspector" aria-label="文件内容预览">
+              <div class="inspector-resizer" id="inspectorResizer" title="拖动调整宽度"></div>
+              <button class="inspector-collapsed-trigger" id="inspectorExpand" type="button" title="展开文件预览" aria-label="展开文件预览">
+                <span>〈</span><b id="inspectorRailName">FILE</b>
+              </button>
+              <div class="inspector-shell">
+                <header class="inspector-header">
+                  <div class="inspector-file-mark" id="inspectorFileMark">TXT</div>
+                  <div class="inspector-title-group">
+                    <strong id="inspectorFileName">选择文件进行预览</strong>
+                    <span id="inspectorFilePath">IDE FILE INSPECTOR</span>
+                  </div>
+                  <div class="inspector-actions">
+                    <button type="button" id="inspectorZoomOut" title="缩小字体" aria-label="缩小预览字体">A−</button>
+                    <span id="inspectorZoomValue">100%</span>
+                    <button type="button" id="inspectorZoomIn" title="放大字体" aria-label="放大预览字体">A＋</button>
+                    <button type="button" id="inspectorWrap" title="切换自动换行" aria-label="切换自动换行">↵</button>
+                    <button type="button" id="inspectorCollapse" title="折叠文件预览" aria-label="折叠文件预览">〉</button>
+                    <button type="button" id="inspectorClose" title="关闭文件预览" aria-label="关闭文件预览">×</button>
+                  </div>
+                </header>
+                <div class="inspector-breadcrumb" id="inspectorBreadcrumb">尚未打开文件</div>
+                <div class="inspector-meta" id="inspectorMeta">
+                  <span>READY</span><span>UTF-8</span><span>0 LINES</span>
+                </div>
+                <div class="file-preview" id="filePreview">
+                  <div class="inspector-empty"><b>NO FILE SELECTED</b><span>从目录树或关系图谱中选择一个文本文件</span></div>
+                </div>
+                <footer class="inspector-status">
+                  <span id="inspectorLanguage">Plain Text</span>
+                  <span id="inspectorStatus">READY</span>
+                </footer>
+              </div>
+            </aside>
           </div>
         </div>
       </section>
@@ -518,6 +554,91 @@
               </select>
             </div>
             <div class="hint">点击宠物可展开聊天框与 AI 助手对话；自定义头像需选择本地图片（PNG/JPG，限 5MB）。</div>
+          </div>
+          <div class="settings-card voice-settings-card" id="setVoiceCard">
+            <div class="chart-title">塞西语音 Agent <small>MACOS / V1.8.0</small></div>
+            <div class="row2">
+              <label class="check"><input type="checkbox" id="setVoiceEnabled"> 启用长按语音对话</label>
+              <label class="check"><input type="checkbox" id="setVoiceCleanup" checked> LLM 口语净化（始终人工确认）</label>
+            </div>
+            <div class="voice-settings-section">
+              <div class="voice-settings-title">01 / ASR 转写</div>
+              <div class="row2">
+                <div><label class="field-label">提供商</label><select class="input" id="setVoiceAsrProvider"><option value="local">本地 Whisper</option><option value="remote">远程 OpenAI 兼容</option></select></div>
+                <div><label class="field-label">语言</label><select class="input" id="setVoiceAsrLanguage"><option value="zh">中文 / 自动多语言</option><option value="en">English</option><option value="auto">自动检测</option></select></div>
+              </div>
+              <label class="field-label">本地 Whisper 模型</label>
+              <select class="input" id="setVoiceAsrLocalModel">
+                <option value="ggml-small-q5_1.bin">small Q5_1 · 速度优先 · 约 181 MiB</option>
+                <option value="ggml-large-v3-turbo-q5_0.bin">large-v3-turbo Q5_0 · 长语音准确率优先 · 约 547 MiB</option>
+              </select>
+              <div class="hint">应用只使用当前选择的模型，不会根据录音长度自动切换；更换后请点击下方“准备本地语音环境”。</div>
+              <label class="check"><input type="checkbox" id="setVoiceAsrFallback" checked> 本地转写失败时回退远程 ASR（届时会上传当次录音）</label>
+              <div id="setVoiceAsrRemote" class="voice-provider-fields">
+                <label class="field-label">远程 ASR Base URL（主通道或回退通道）</label><input class="input" id="setVoiceAsrBase" placeholder="https://api.example.com/v1">
+                <div class="row2"><div><label class="field-label">API Key</label><input class="input" type="password" id="setVoiceAsrKey"></div><div><label class="field-label">模型</label><input class="input" id="setVoiceAsrModel" placeholder="gpt-4o-mini-transcribe"></div></div>
+              </div>
+              <label class="field-label">用户专有词词典（逗号或换行分隔）</label><textarea class="input" id="setVoiceGlossary" rows="2" placeholder="浑元4、项目代号、专有名词"></textarea>
+              <div class="row"><span class="hint" id="setVoiceLearnedGlossaryStatus">尚未学习专有词。</span><button class="btn" id="setVoiceClearLearnedGlossary" type="button">清空已学词典</button></div>
+              <div class="hint">只有你确认发送后的专名、术语和拼写修正才会保存到本地词典；取消的整理结果不会学习。</div>
+            </div>
+            <div class="voice-settings-section">
+              <div class="voice-settings-title">02 / 塞西声线与 TTS</div>
+              <div class="row2">
+                <div><label class="field-label">TTS 主通道（默认远程）</label><select class="input" id="setVoiceTtsProvider"><option value="cosy">阿里云 CosyVoice</option><option value="custom">自定义 OpenAI 兼容</option><option value="local">本地 MLX · Qwen3-TTS</option></select></div>
+                <div><label class="field-label">声音档案</label><select class="input" id="setVoiceProfile"><option value="builtin-Xaihi">Xaihi · 塞西内置参考音色</option></select></div>
+              </div>
+              <label class="check"><input type="checkbox" id="setVoiceAgentTts"> 开启 Agent TTS 回复（默认关闭；仅影响 Agent 回答自动播报）</label>
+              <label class="check"><input type="checkbox" id="setVoiceTtsFallback" checked> 远程合成失败时回退本地 TTS</label>
+              <div id="setVoiceCosyFields" class="voice-provider-fields">
+                <div class="row2"><div><label class="field-label">CosyVoice API Key</label><input class="input" type="password" id="setVoiceCosyKey"></div><div><label class="field-label">Workspace ID（专属工作空间可选）</label><input class="input" id="setVoiceCosyWorkspace"></div></div>
+                <div class="hint">使用百炼默认公共 API 地址时留空；只有账号提供专属 Workspace 接入地址时才填写，用于把请求路由到对应的隔离工作空间。</div>
+                <div class="row"><button class="btn btn-primary" id="setVoiceAutoCosy" type="button">一键配置 Xaihi 并试听</button><span class="test-result" id="setVoiceAutoCosyResult">自动检测连接、复用或创建 Voice ID，并写入当前配置。</span></div>
+              </div>
+              <div id="setVoiceCustomFields" class="voice-provider-fields">
+                <label class="field-label">自定义 TTS Base URL</label><input class="input" id="setVoiceTtsBase" placeholder="https://api.example.com/v1">
+                <div class="row2"><div><label class="field-label">API Key</label><input class="input" type="password" id="setVoiceTtsKey"></div><div><label class="field-label">模型 / Voice</label><input class="input" id="setVoiceTtsModel" placeholder="tts-1 / alloy"></div></div>
+              </div>
+              <div id="setVoiceLocalFields" class="voice-provider-fields">
+                <label class="field-label">本地 MLX 模型（Hugging Face ID 或转换后的本地目录）</label>
+                <div class="row"><input class="input" id="setVoiceLocalModel" placeholder="mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"><button class="btn" id="setVoicePickModel">选择目录</button><button class="btn" id="setVoiceValidateModel">校验</button></div>
+                <div class="row2">
+                  <div><label class="field-label">本地推理模式</label><select class="input" id="setVoiceLocalMode"><option value="zero_shot">参考音频零样本</option><option value="custom_voice">已微调说话人模型</option></select></div>
+                  <div><label class="field-label">说话人 ID</label><input class="input" id="setVoiceLocalSpeaker" placeholder="Xaihi"></div>
+                </div>
+                <label class="field-label">本地声线指令（已微调模型可用）</label><input class="input" id="setVoiceLocalInstruct" placeholder="沉稳、温柔、清晰的中文女声">
+                <div class="hint" id="setVoiceLocalModelResult">未校验本地模型。PyTorch 训练权重需先转换为 MLX 格式。</div>
+              </div>
+              <div class="row2"><div><label class="field-label">音量</label><input class="input" type="number" id="setVoiceVolume" min="0" max="1" step="0.05" value="0.9"></div><div><label class="field-label">语速</label><input class="input" type="number" id="setVoiceSpeed" min="0.6" max="1.6" step="0.05" value="1"></div></div>
+            </div>
+            <div class="voice-settings-section">
+              <div class="voice-settings-title">03 / 自定义声音档案（可选）</div>
+              <div class="row2"><div><label class="field-label">档案类型（不会改变上方主通道）</label><select class="input" id="setVoiceEnrollProvider"><option value="local">本地参考音频</option><option value="cosy">阿里云 CosyVoice 音色</option><option value="custom">自定义服务 Voice ID</option></select></div><div><label class="field-label">档案名称</label><input class="input" id="setVoiceProfileName" placeholder="塞西 · 本地"></div></div>
+              <label class="field-label">远程参考音频 HTTPS URL（连续 10–20 秒）</label><input class="input" id="setVoiceRemoteUrl" placeholder="仅 CosyVoice 克隆需要">
+              <div class="row"><input class="input" id="setVoiceReferencePath" readonly placeholder="本地参考音频（3–10 秒）"><button class="btn" id="setVoicePickRef">选择音频</button></div>
+              <label class="field-label">参考音频精确逐字稿</label><textarea class="input" id="setVoiceReferenceText" rows="2" placeholder="必须与参考音频逐字一致"></textarea>
+              <div class="row"><button class="btn" id="setVoiceEnroll">创建声音档案</button><span class="test-result" id="setVoiceEnrollResult"></span></div>
+            </div>
+            <div class="voice-settings-section">
+              <div class="voice-settings-title">04 / 预制状态短句（可选，优先于 TTS）</div>
+              <div class="row voice-status-audio">
+                <button class="btn" data-voice-status="tool_confirmation">选择“等待确认”</button>
+                <button class="btn" data-voice-status="tool_result">选择“处理完成”</button>
+                <button class="btn" data-voice-status="cancelled">选择“已取消”</button>
+                <button class="btn" data-voice-status="error">选择“处理失败”</button>
+              </div>
+              <div class="hint" id="setVoiceStatusAudioHint">未提供时，会用当前塞西声线生成并由本地模型缓存。</div>
+            </div>
+            <div class="row voice-settings-actions">
+              <button class="btn btn-primary" id="setVoiceSave">保存语音配置</button>
+              <button class="btn" id="setVoicePrepare">准备本地语音环境</button>
+              <button class="btn" id="setVoiceTest">试听当前配置</button>
+              <button class="btn" id="setVoiceTestLocal">A / 本地试听</button>
+              <button class="btn" id="setVoiceTestRemote">B / 远程试听</button>
+              <span class="test-result" id="setVoiceResult"></span>
+            </div>
+            <div class="voice-runtime-status" id="setVoiceRuntimeStatus">正在检查本地环境…</div>
+            <div class="hint">长按悬浮球 520ms 开始录音，松开进入转写与净化确认页。默认本地 ASR，仅在失败且已开启回退时上传当次录音；TTS 默认远程，失败后回退本地。未点击“发送”的内容不进入历史。</div>
           </div>
           <div class="settings-card">
             <div class="chart-title">本地数据</div>
@@ -985,10 +1106,12 @@
   <script src="vendor/echarts.min.js"></script>
   <script src="js/app.js"></script>
   <script src="js/agent-tasks.js"></script>
+  <script src="js/task-lifecycle.js"></script>
   <script src="js/tasks.js"></script>
   <script src="js/board.js"></script>
   <script src="js/literature.js"></script>
   <script src="js/literature-layout.js"></script>
+  <script src="js/project-code-preview.js"></script>
   <script src="js/projects.js"></script>
   <script src="js/inspirations.js"></script>
   <script src="js/reports.js"></script>

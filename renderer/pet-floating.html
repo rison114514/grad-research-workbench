@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self'; font-src 'self'">
   <title>塞西 · 悬浮球</title>
   <!-- 透明首帧必须内联：避免外部 CSS 尚未解析时短暂绘制默认白底。 -->
   <style>html,body{background:rgba(0,0,0,0)!important;background-image:none!important}</style>
@@ -21,9 +21,48 @@
       </div>
       <div class="pet-ball-glow" aria-hidden="true"></div>
       <div class="pet-ball-dot" aria-hidden="true"></div>
+      <div class="pet-record-hint" id="petRecordHint">长按说话</div>
     </div>
     <div class="pet-ball-hit" id="petBallHit" title="点击与塞西聊天"></div>
   </div>
+
+  <!-- 语音确认态：原始转写不会进入历史，只有点击“发送”后才进入 Agent。 -->
+  <section id="petVoice" class="pet-voice hidden" aria-live="polite">
+    <header class="pet-voice-head" id="petVoiceHead">
+      <span class="pet-voice-avatar"><img id="petVoiceAvatar" src="assets/pet/xaihi-half.png" alt=""></span>
+      <span><b>塞西 · 语音协议</b><small id="petVoiceStatus">等待输入</small></span>
+      <button id="petVoiceClose" title="取消并收起">×</button>
+    </header>
+    <div class="pet-voice-stage">
+      <div class="voice-wave" id="petVoiceWave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="voice-processing" id="petVoiceProcessing">正在建立本地语音链路…</div>
+      <div class="voice-review hidden" id="petVoiceReview">
+        <label for="petVoiceText">确认后发送</label>
+        <div class="voice-edit-summary hidden" id="petVoiceEditSummary"></div>
+        <textarea id="petVoiceText" maxlength="12000"></textarea>
+        <details><summary>查看原始转写</summary><pre id="petVoiceRaw"></pre></details>
+      </div>
+      <div class="voice-agent hidden" id="petVoiceAgent">
+        <div class="voice-agent-type" id="petVoiceAgentType">AGENT</div>
+        <div class="voice-agent-text" id="petVoiceAgentText"></div>
+      </div>
+      <div class="voice-error hidden" id="petVoiceError"></div>
+    </div>
+    <footer class="pet-voice-actions" id="petVoiceReviewActions">
+      <button class="secondary" id="petVoiceRetry">重录</button>
+      <button class="secondary" id="petVoiceCancel">取消</button>
+      <button class="primary" id="petVoiceSend">发送</button>
+    </footer>
+    <footer class="pet-voice-actions hidden" id="petVoiceRecordingActions">
+      <button class="secondary" id="petVoiceRecordingCancel">取消</button>
+      <button class="primary" id="petVoiceRecordingStop">结束录制</button>
+    </footer>
+    <footer class="pet-voice-actions hidden" id="petVoiceAgentActions">
+      <button class="secondary" id="petVoiceReject">取消</button>
+      <button class="secondary" id="petVoiceOpenChat">查看对话</button>
+      <button class="primary" id="petVoiceConfirm">确认执行</button>
+    </footer>
+  </section>
 
   <!-- 聊天态（点击悬浮球展开，右下角锚定） -->
   <div id="petChat" class="pet-chat hidden">
@@ -49,6 +88,7 @@
   <script src="js/agent/tool-registry.js"></script>
   <script src="js/agent/draft-memory.js"></script>
   <script src="js/assistant.js"></script>
+  <script src="js/voice-controller.js"></script>
   <script src="js/pet-floating.js"></script>
 </body>
 </html>

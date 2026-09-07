@@ -1,6 +1,6 @@
 {
   "name": "grad-research-workbench",
-  "version": "1.5.2",
+  "version": "1.8.0",
   "description": "面向工科研究生的个人智能工作台（本地数据 + AI Agent 集成）",
   "main": "main/index.js",
   "author": "rison",
@@ -9,7 +9,7 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "preview:web": "node preview-server.js",
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.js",
     "pack": "bash scripts/package.sh",
     "pack:win": "bash scripts/package-win.sh"
   },

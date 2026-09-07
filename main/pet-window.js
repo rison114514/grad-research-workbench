@@ -15,6 +15,8 @@ const BALL_W = 132;
 const BALL_H = 132;
 const CHAT_W = 340;
 const CHAT_H = 520;
+const VOICE_W = 372;
+const VOICE_H = 420;
 const TRANSPARENT_COLOR = 'rgba(0, 0, 0, 0)';
 
 let petWindow = null;
@@ -126,18 +128,25 @@ function destroyPetWindow() {
 }
 
 /** 切换窗口形态（ball ⇄ chat），右下角锚定保持视觉位置（含销毁防护，防止卡死） */
+function dimensions(value) {
+  if (value === 'chat') return { width: CHAT_W, height: CHAT_H };
+  if (value === 'voice') return { width: VOICE_W, height: VOICE_H };
+  return { width: BALL_W, height: BALL_H };
+}
+
 function setMode(next) {
   const prev = mode;
-  mode = next === 'chat' ? 'chat' : 'ball';
+  mode = next === 'chat' || next === 'voice' ? next : 'ball';
   if (!petWindow || petWindow.isDestroyed()) return;
   try {
     const [x, y] = petWindow.getPosition();
-    const w = mode === 'chat' ? CHAT_W : BALL_W;
-    const h = mode === 'chat' ? CHAT_H : BALL_H;
-    // 双向右下角锚定：ball→chat 向左上扩展；chat→ball 右下对齐回原位（修复收起后球跑左上）
-    let nx = x, ny = y;
-    if (mode === 'chat' && prev === 'ball') { nx = x + BALL_W - CHAT_W; ny = y + BALL_H - CHAT_H; }
-    else if (mode === 'ball' && prev === 'chat') { nx = x + CHAT_W - BALL_W; ny = y + CHAT_H - BALL_H; }
+    const from = dimensions(prev);
+    const to = dimensions(mode);
+    const w = to.width;
+    const h = to.height;
+    // 任意形态切换均以右下角为锚点，悬浮球位置不会漂移。
+    const nx = x + from.width - to.width;
+    const ny = y + from.height - to.height;
     petWindow.setBounds({ x: nx, y: ny, width: w, height: h });
     // Windows 在改变无边框窗口尺寸后可能重新应用 DWM backdrop。
     enforceTransparentSurface(petWindow);
@@ -177,7 +186,7 @@ function focusMain() {
 }
 
 module.exports = {
-  BALL_W, BALL_H, CHAT_W, CHAT_H,
+  BALL_W, BALL_H, CHAT_W, CHAT_H, VOICE_W, VOICE_H,
   TRANSPARENT_COLOR,
   enforceTransparentSurface,
   createPetWindow,

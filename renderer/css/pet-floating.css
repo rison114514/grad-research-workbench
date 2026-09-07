@@ -113,6 +113,61 @@ body { -webkit-user-select: none; }
   animation: petDotPulse 2s ease-in-out infinite;
   pointer-events: none;
 }
+.pet-record-hint {
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  color: rgba(255,255,255,.7); font: 8px/1 ui-monospace, monospace;
+  letter-spacing: .12em; white-space: nowrap; opacity: 0; transition: opacity .2s;
+}
+.pet-ball:hover .pet-record-hint { opacity: 1; }
+.pet-ball.recording .pet-ball-visual { animation: none; }
+.pet-ball.recording .pet-orbit-2 { border-color: #ff5c55; animation-duration: .75s; }
+.pet-ball.recording .pet-ball-dot { background: #ff5c55; box-shadow: 0 0 14px #ff5c55; }
+
+/* ============ 紧凑语音确认卡 ============ */
+.pet-voice {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  color: #eef0ed; background: rgba(18,21,24,.98);
+  border: 1px solid #50565d; border-top: 4px solid var(--pet-yellow);
+  box-shadow: 0 18px 48px rgba(0,0,0,.55);
+}
+.pet-voice::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .12;
+  background: repeating-linear-gradient(135deg, transparent 0 9px, rgba(255,255,255,.18) 9px 10px);
+}
+.pet-voice-head { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 9px 12px; border-bottom: 1px solid #353a40; cursor: move; }
+.pet-voice-head > span:nth-child(2) { display: flex; flex-direction: column; gap: 3px; }
+.pet-voice-head b { color: var(--pet-yellow); font-size: 13px; }
+.pet-voice-head small { color: #9299a0; font: 9px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
+.pet-voice-head button { margin-left: auto; width: 26px; height: 26px; border: 1px solid #4b5158; background: #1c2024; color: #c6cbd0; cursor: pointer; }
+.pet-voice-avatar { width: 36px; height: 36px; overflow: hidden; border-radius: 50%; border: 1px solid var(--pet-yellow); }
+.pet-voice-avatar img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.pet-voice-stage { position: relative; z-index: 1; flex: 1; min-height: 0; padding: 15px; overflow: auto; }
+.voice-processing { margin-top: 16px; color: #aeb4ba; font-size: 12px; text-align: center; }
+.voice-wave { height: 50px; display: flex; justify-content: center; align-items: center; gap: 5px; }
+.voice-wave i { width: 4px; height: 12px; background: var(--pet-yellow); animation: voicePulse .85s ease-in-out infinite alternate; }
+.voice-wave i:nth-child(2), .voice-wave i:nth-child(6) { animation-delay: -.5s; height: 24px; }
+.voice-wave i:nth-child(3), .voice-wave i:nth-child(5) { animation-delay: -.2s; height: 34px; }
+.voice-wave i:nth-child(4) { animation-delay: -.7s; height: 46px; }
+.voice-wave.idle i { animation-play-state: paused; height: 5px; opacity: .4; }
+@keyframes voicePulse { to { transform: scaleY(.22); opacity: .45; } }
+.voice-review label { display: block; margin-bottom: 7px; color: var(--pet-yellow); font: 10px/1 ui-monospace, monospace; letter-spacing: .12em; }
+.voice-edit-summary { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 9px; }
+.voice-edit-summary span { max-width: 100%; padding: 4px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid #454b51; background: rgba(255,255,255,.045); color: #aeb5bb; font: 9px/1.25 ui-monospace,monospace; }
+.voice-edit-summary .format { border-color: rgba(255,244,79,.58); color: var(--pet-yellow); }
+.voice-edit-summary .correction { border-color: rgba(99,224,197,.45); color: #8debd7; }
+.voice-edit-summary .fallback { border-color: rgba(255,160,90,.5); color: #ffbd8b; }
+.voice-review textarea { width: 100%; height: 132px; resize: none; padding: 11px; border: 1px solid #50565d; border-left: 3px solid var(--pet-yellow); background: #0f1215; color: #f3f4f1; font: 14px/1.65 -apple-system,"PingFang SC",sans-serif; outline: 0; user-select: text; }
+.voice-review textarea:focus { box-shadow: 0 0 0 1px var(--pet-yellow); }
+.voice-review details { margin-top: 9px; color: #777f87; font-size: 10px; user-select: text; }
+.voice-review summary { cursor: pointer; }
+.voice-review pre { margin-top: 6px; padding: 8px; white-space: pre-wrap; border: 1px solid #33383e; background: #101316; color: #aeb4ba; font: 11px/1.5 ui-monospace,monospace; }
+.voice-agent-type { display: inline-block; margin-bottom: 12px; padding: 3px 7px; background: var(--pet-yellow); color: #090a0b; font: 9px/1 ui-monospace,monospace; }
+.voice-agent-text { color: #eef0ed; font-size: 14px; line-height: 1.7; white-space: pre-wrap; user-select: text; }
+.voice-error { padding: 12px; border-left: 3px solid #ff6b65; background: rgba(255,80,70,.1); color: #ffaaa5; font-size: 12px; line-height: 1.6; user-select: text; }
+.pet-voice-actions { position: relative; z-index: 1; display: flex; gap: 8px; padding: 11px 12px; border-top: 1px solid #353a40; background: #111418; }
+.pet-voice-actions button { min-height: 34px; padding: 0 12px; border: 1px solid #4b5158; font-size: 12px; cursor: pointer; }
+.pet-voice-actions .secondary { color: #cbd0d4; background: #24292e; }
+.pet-voice-actions .primary { margin-left: auto; color: #08090a; background: var(--pet-yellow); border-color: var(--pet-yellow); font-weight: 700; }
 
 /* ============ 聊天态（深色工业风，与智能助理一致） ============ */
 .pet-chat {

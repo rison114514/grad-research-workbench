@@ -10,7 +10,7 @@
   if (window.api && window.api.store) return;
 
   const STORAGE_KEY = 'research-workbench.browser-preview.v2';
-  const DOMAINS = ['tasks', 'projects', 'literature', 'inspirations', 'reports', 'githubSubs', 'agentTasks', 'activity', 'settings', 'timeLogs', 'dailyPlans', 'dailyTemplates', 'weeklyTemplates', 'fitnessPlans', 'fitnessLogs', 'assistantSessions', 'assistantMessages', 'litCollections', 'litRelations'];
+  const DOMAINS = ['tasks', 'projects', 'literature', 'inspirations', 'reports', 'githubSubs', 'agentTasks', 'activity', 'settings', 'timeLogs', 'dailyPlans', 'dailyTemplates', 'weeklyTemplates', 'fitnessPlans', 'fitnessLogs', 'assistantSessions', 'assistantMessages', 'litCollections', 'litRelations', 'voiceProfiles'];
   const clone = (value) => JSON.parse(JSON.stringify(value));
   const iso = () => new Date().toISOString();
   const day = (offset = 0) => {
@@ -54,6 +54,7 @@
       fitnessLogs: [],
       assistantSessions: [],
       assistantMessages: [],
+      voiceProfiles: [],
       litCollections: [
         { id: 'preview-col-1', createdAt: now, name: '深度学习', parentId: null, order: 0, source: 'user', zoteroKey: null, readOnly: false }
       ],
@@ -388,6 +389,8 @@
         }, { once: true });
         input.click();
       }),
+      pickAudio: async () => null,
+      pickVoiceModelFolder: async () => null,
       exportMarkdown: async ({ defaultName, content }) => {
         downloadBlob(new Blob([content], { type: 'text/markdown;charset=utf-8' }), `${defaultName || '科研工作台报告'}.md`);
         return { ok: true, filePath: '浏览器下载目录' };
@@ -438,11 +441,27 @@
       isDesktop: async () => false, // 浏览器预览不支持系统级悬浮球 → 应用内浮窗降级
       setEnabled: async () => ({ ok: true }),
       openChat: async () => ({ ok: false, error: '浏览器预览不支持系统级悬浮球' }),
+      openVoice: async () => ({ ok: false, error: '浏览器预览不支持系统级语音卡' }),
       closeChat: async () => ({ ok: false, error: '浏览器预览不支持系统级悬浮球' }),
+      closeVoice: async () => ({ ok: false, error: '浏览器预览不支持系统级语音卡' }),
       getState: async () => ({ enabled: false, mode: 'ball', position: null }),
       focusMain: async () => ({ ok: false }),
       move: async () => ({ ok: false }),
       onModeChanged: () => {}
+    },
+    voice: {
+      permission: async () => ({ ok: false, status: 'unsupported' }),
+      runtimeStatus: async () => ({ supported: false, platform: 'browser' }),
+      validateLocalModel: async () => ({ ok: false, error: '请在 macOS 桌面版校验本地模型' }),
+      prepareRuntime: async () => ({ ok: false, error: '请在 macOS 桌面版准备本地语音环境' }),
+      transcribe: async () => ({ ok: false, error: '浏览器预览不支持本地语音转写' }),
+      normalize: async (text) => ({ ok: true, text, original: text, fallback: true }),
+      enroll: async () => ({ ok: false, error: '请在 macOS 桌面版创建声音档案' }),
+      autoConfigureCosy: async () => ({ ok: false, error: '请在 macOS 桌面版配置 Xaihi 云端音色' }),
+      synthesize: async () => ({ ok: false, error: '浏览器预览不支持塞西声线' }),
+      stop: async () => ({ ok: true }),
+      test: async () => ({ ok: false, error: '请在 macOS 桌面版试听' }),
+      onRuntimeProgress: () => {}
     }
   };
 

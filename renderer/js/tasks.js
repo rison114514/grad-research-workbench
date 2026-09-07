@@ -22,22 +22,31 @@ const Tasks = {
 
   renderStats() {
     const t = this.current;
+    const lifecycle = window.TaskLifecycle;
+    const grouped = lifecycle ? lifecycle.partition(t) : { active: t, archived: [] };
     const today = App.todayStr();
     const strip = document.getElementById('taskStatStrip');
-    const overdue = t.filter((x) => x.dueDate && x.dueDate < today && x.status !== 'done').length;
+    const overdue = grouped.active.filter((x) => x.dueDate && x.dueDate < today && x.status !== 'done').length;
     const doneToday = t.filter((x) => x.status === 'done' && x.completedAt && x.completedAt.slice(0, 10) === today).length;
-    const doing = t.filter((x) => x.status === 'doing').length;
+    const doing = grouped.active.filter((x) => x.status === 'doing').length;
+    const archiveCount = document.getElementById('taskArchiveCount');
+    if (archiveCount) archiveCount.textContent = grouped.archived.length;
     strip.innerHTML = `
       <div class="stat-card"><div class="lbl">今日完成</div><div class="num hl-green">${doneToday}</div></div>
       <div class="stat-card"><div class="lbl">进行中</div><div class="num hl-blue">${doing}</div></div>
       <div class="stat-card"><div class="lbl">已逾期</div><div class="num hl-red">${overdue}</div></div>
-      <div class="stat-card"><div class="lbl">任务总数</div><div class="num">${t.length}</div></div>`;
+      <div class="stat-card"><div class="lbl">当前事项</div><div class="num">${grouped.active.length}</div></div>`;
   },
 
   filtered() {
     const today = App.todayStr();
+    const lifecycle = window.TaskLifecycle;
+    const now = Date.now();
     return this.current
       .filter((t) => {
+        const archived = lifecycle ? lifecycle.isArchived(t, now) : false;
+        if (this.filter === 'archive') return archived;
+        if (archived) return false;
         switch (this.filter) {
           case 'today': return t.dueDate === today || (t.status !== 'done' && (!t.dueDate || t.dueDate <= today));
           case 'overdue': return t.dueDate && t.dueDate < today && t.status !== 'done';
@@ -47,6 +56,9 @@ const Tasks = {
         }
       })
       .sort((a, b) => {
+        if (this.filter === 'archive') {
+          return String(b.completedAt || b.updatedAt || '').localeCompare(String(a.completedAt || a.updatedAt || ''));
+        }
         const order = { todo: 0, doing: 1, done: 2 };
         if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
         const pr = { high: 0, medium: 1, low: 2 };
@@ -60,10 +72,15 @@ const Tasks = {
     const items = this.filtered();
     const today = App.todayStr();
     if (items.length === 0) {
-      list.innerHTML = `<div class="empty-tip">暂无任务，试试用「AI 添加」或新建任务</div>`;
+      const hasArchived = this.current.some((task) => window.TaskLifecycle?.isArchived(task));
+      const emptyText = this.filter === 'archive'
+        ? '暂无归档事项 · 完成超过 3 天的任务会自动进入这里'
+        : hasArchived ? '当前筛选下没有事项，可前往「归档」查看历史任务' : '暂无任务，试试用「AI 添加」或新建任务';
+      list.innerHTML = `<div class="empty-tip">${emptyText}</div>`;
       return;
     }
     list.innerHTML = items.map((t) => {
+      const archived = window.TaskLifecycle?.isArchived(t) || false;
       const pName = App.projectName(t.projectId);
       const overdue = t.dueDate && t.dueDate < today && t.status !== 'done';
       const rarity = { high: 6, medium: 4, low: 2 }[t.priority] || 2;
@@ -74,8 +91,8 @@ const Tasks = {
           <li><span>${i + 1}. ${App.esc(typeof s === 'string' ? s : s.title)}</span></li>`).join('')}
         </ul>` : '';
       return `
-      <div class="task-item priority-${t.priority} ${t.status === 'done' ? 'done' : ''}" data-id="${t.id}">
-        <div class="t-check" data-act="toggle" title="标记完成">✓</div>
+      <div class="task-item priority-${t.priority} ${t.status === 'done' ? 'done' : ''} ${archived ? 'archived' : ''}" data-id="${t.id}" role="button" tabindex="0" title="点击查看并编辑任务">
+        <div class="t-check" data-act="toggle" title="${t.status === 'done' ? '恢复为待办' : '标记完成'}">✓</div>
         <div class="t-main">
           <div class="t-title">${App.esc(t.title)}</div>
           <div class="t-meta">
@@ -83,13 +100,15 @@ const Tasks = {
             <span class="rarity-stars" title="${rarity}星优先级" aria-label="${rarity}星优先级">${rarityStars}</span>
             ${t.dueDate ? `<span class="tag ${overdue ? 'overdue' : ''}">${overdue ? 'OVERDUE 已逾期 ' : 'DUE '}${App.fmtDate(t.dueDate)}</span>` : ''}
             ${pName ? `<span class="tag project">PROJECT ${App.esc(pName)}</span>` : ''}
-            <span class="tag status">${t.status === 'todo' ? '待办' : t.status === 'doing' ? '进行中' : '已完成'}</span>
+            <span class="tag status">${archived ? '已归档' : t.status === 'todo' ? '待办' : t.status === 'doing' ? '进行中' : '已完成'}</span>
           </div>
           ${t.note ? `<div class="t-note muted">${App.esc(t.note)}</div>` : ''}
           ${subs}
         </div>
         <div class="t-actions">
-          <button class="icon-btn plan-btn" data-act="split" title="拆解为执行步骤">PLAN</button>
+          ${archived
+            ? '<button class="icon-btn restore-btn" data-act="restore" title="恢复为待办">RESTORE</button>'
+            : '<button class="icon-btn plan-btn" data-act="split" title="拆解为执行步骤">PLAN</button>'}
           <button class="icon-btn" data-act="edit" title="编辑">EDIT</button>
           <button class="icon-btn" data-act="del" title="删除">DEL</button>
         </div>
@@ -100,19 +119,15 @@ const Tasks = {
   async toggle(id) {
     const t = this.current.find((x) => x.id === id);
     if (!t) return;
-    if (t.status === 'done') {
-      await window.api.store.update('tasks', id, { status: 'todo', completedAt: null });
+    const patch = window.TaskLifecycle.toggleCompletionPatch(t);
+    await window.api.store.update('tasks', id, patch);
+    if (patch.status === 'done') {
+      await window.api.store.create('activity', { date: App.todayStr(), taskId: id, action: '完成', content: `完成任务：${t.title}` });
+      App.toast('任务已完成，将在 3 天后自动归档', 'ok');
     } else {
-      const next = t.status === 'todo' ? 'doing' : 'done';
-      await window.api.store.update('tasks', id, {
-        status: next,
-        completedAt: next === 'done' ? new Date().toISOString() : null
-      });
-      if (next === 'done') {
-        await window.api.store.create('activity', { date: App.todayStr(), taskId: id, action: '完成', content: `完成任务：${t.title}` });
-      }
+      App.toast('任务已恢复为待办', 'ok');
     }
-    this.render();
+    await this.render();
     window.Board && window.Board.invalidate();
   },
 
@@ -275,11 +290,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('taskList').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-act]');
-    if (!btn) return;
     const item = e.target.closest('.task-item');
+    if (!item) return;
     const id = item.dataset.id;
+    if (!btn) { openTaskEditor(id); return; }
     const act = btn.dataset.act;
     if (act === 'toggle') await Tasks.toggle(id);
+    else if (act === 'restore') await Tasks.toggle(id);
     else if (act === 'split') await Tasks.split(id);
     else if (act === 'edit') openTaskEditor(id);
     else if (act === 'del') {
@@ -290,6 +307,15 @@ document.addEventListener('DOMContentLoaded', () => {
         window.Board && window.Board.invalidate();
       }
     }
+  });
+
+  document.getElementById('taskList').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    if (e.target.closest('[data-act]')) return;
+    const item = e.target.closest('.task-item');
+    if (!item) return;
+    e.preventDefault();
+    openTaskEditor(item.dataset.id);
   });
 
   document.getElementById('openTaskModal').addEventListener('click', () => openTaskEditor(null));

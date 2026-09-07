@@ -16,6 +16,7 @@ const ai = require('./ai-service');
 const reportService = require('./report-service');
 const pdfService = require('./pdf-service');
 const zotero = require('./zotero-service');
+const voice = require('./voice-service');
 
 function registerIpc() {
   /* ---------- 通用 ---------- */
@@ -59,6 +60,29 @@ function registerIpc() {
     const filePath = res.filePaths[0];
     const stat = fs.statSync(filePath);
     return { path: filePath, name: path.basename(filePath), size: stat.size };
+  });
+
+  ipcMain.handle('dialog:pickAudio', async () => {
+    const win = require('electron').BrowserWindow.getFocusedWindow() ||
+      require('electron').BrowserWindow.getAllWindows()[0];
+    const res = await dialog.showOpenDialog(win, {
+      title: '选择塞西声音参考音频',
+      properties: ['openFile'],
+      filters: [{ name: '音频', extensions: ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg'] }]
+    });
+    if (res.canceled || res.filePaths.length === 0) return null;
+    return res.filePaths[0];
+  });
+
+  ipcMain.handle('dialog:pickVoiceModelFolder', async () => {
+    const win = require('electron').BrowserWindow.getFocusedWindow() ||
+      require('electron').BrowserWindow.getAllWindows()[0];
+    const res = await dialog.showOpenDialog(win, {
+      title: '选择已转换为 MLX 格式的塞西模型目录',
+      properties: ['openDirectory']
+    });
+    if (res.canceled || res.filePaths.length === 0) return null;
+    return res.filePaths[0];
   });
 
   ipcMain.handle('fs:scanTree', (e, rootPath, maxDepth) => {
@@ -106,8 +130,18 @@ function registerIpc() {
 
   ipcMain.handle('fs:readTextFile', (e, filePath) => {
     try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      return { ok: true, content: content.slice(0, 50000), truncated: content.length > 50000 };
+      const buffer = fs.readFileSync(filePath);
+      const sample = buffer.subarray(0, Math.min(buffer.length, 8192));
+      if (sample.includes(0)) return { ok: false, error: '该文件包含二进制内容，无法作为文本预览' };
+      const content = buffer.toString('utf-8');
+      const replacementCount = (content.slice(0, 8192).match(/\uFFFD/g) || []).length;
+      if (replacementCount > 12) return { ok: false, error: '该文件不是可识别的 UTF-8 文本' };
+      return {
+        ok: true,
+        content: content.slice(0, 50000),
+        truncated: content.length > 50000,
+        encoding: 'UTF-8'
+      };
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -227,6 +261,34 @@ function registerIpc() {
   ipcMain.handle('ai:parseNaturalTask', (e, text) => ai.parseNaturalTask(text));
   ipcMain.handle('ai:isConfigured', () => ai.isConfigured(store.getSettings()));
 
+  /* ---------- 塞西语音 Agent ---------- */
+  ipcMain.handle('voice:permission', async () => voice.permission());
+  ipcMain.handle('voice:runtimeStatus', () => voice.runtimeStatus());
+  ipcMain.handle('voice:validateLocalModel', (event, config) => voice.validateLocalModel(config || {}));
+  ipcMain.handle('voice:prepareRuntime', async (event, options) => {
+    try {
+      return await voice.prepareRuntime(options || {}, (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send('voice:runtime-progress', progress);
+      });
+    } catch (error) { return { ok: false, error: error.message }; }
+  });
+  ipcMain.handle('voice:transcribe', async (event, audio, provider, options) => voice.transcribe(audio, provider, options || {}));
+  ipcMain.handle('voice:normalize', async (event, transcript, glossary) => {
+    try { return await voice.normalize(transcript, glossary || []); }
+    catch (error) { return { ok: true, text: String(transcript || ''), original: String(transcript || ''), fallback: true, reason: error.message }; }
+  });
+  ipcMain.handle('voice:enroll', async (event, profile, provider) => {
+    try { return { ok: true, profile: await voice.enroll(profile || {}, provider) }; }
+    catch (error) { return { ok: false, error: error.message }; }
+  });
+  ipcMain.handle('voice:autoConfigureCosy', async (event, options) => {
+    try { return await voice.autoConfigureCosy(options || {}); }
+    catch (error) { return { ok: false, error: error.message }; }
+  });
+  ipcMain.handle('voice:synthesize', async (event, input) => voice.synthesize(input || {}));
+  ipcMain.handle('voice:stop', () => voice.stop());
+  ipcMain.handle('voice:test', async (event, provider, profileId) => voice.test(provider, profileId));
+
   /* ---------- Zotero（只读） ---------- */
   ipcMain.handle('zotero:test', async (e, config) => {
     try { return { ok: true, ...(await zotero.testConnection(config || {})) }; }
@@ -249,14 +311,16 @@ function registerIpc() {
   ipcMain.handle('pet:isDesktop', () => true);
   ipcMain.handle('pet:setEnabled', (e, enabled) => {
     if (enabled) petWindow.createPetWindow();
-    else petWindow.destroyPetWindow();
+    else { voice.stop(); petWindow.destroyPetWindow(); }
     return { ok: true };
   });
   ipcMain.handle('pet:openChat', () => {
     petWindow.setMode('chat'); // 只展开桌宠对话框；不唤起主窗口（主窗口由程序坞/双击悬浮球唤起）
     return { ok: true };
   });
+  ipcMain.handle('pet:openVoice', () => { petWindow.setMode('voice'); return { ok: true }; });
   ipcMain.handle('pet:closeChat', () => { petWindow.setMode('ball'); return { ok: true }; });
+  ipcMain.handle('pet:closeVoice', () => { petWindow.setMode('ball'); return { ok: true }; });
   ipcMain.handle('pet:getState', () => petWindow.getState());
   ipcMain.handle('pet:focusMain', () => { petWindow.focusMain(); return { ok: true }; });
   ipcMain.handle('pet:move', (e, dx, dy) => { petWindow.moveBy(Number(dx) || 0, Number(dy) || 0); return { ok: true }; });

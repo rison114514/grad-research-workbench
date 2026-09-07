@@ -6,6 +6,12 @@ const Projects = {
   activeId: null,
   graphChart: null,
   treeCache: null,
+  inspectorProjectId: null,
+  previewPathname: null,
+  previewRequestId: 0,
+  inspectorWidth: 460,
+  inspectorFontSize: 13,
+  inspectorWrapped: false,
 
   async render() {
     App.state.projects = await window.api.store.list('projects');
@@ -36,6 +42,8 @@ const Projects = {
   async renderDetail() {
     const p = App.state.projects.find((x) => x.id === this.activeId);
     if (!p) return;
+    if (this.inspectorProjectId && this.inspectorProjectId !== p.id) this.closeInspector();
+    this.inspectorProjectId = p.id;
     const box = document.getElementById('projectDetail');
     box.classList.remove('hidden');
     document.getElementById('pdName').textContent = p.name;
@@ -80,7 +88,7 @@ const Projects = {
         lines.push(`<div class="tr-line"><span class="tr-indent">${indent}</span><span class="tr-dir" data-path="${App.esc(n.path)}">[DIR] ${App.esc(n.name)}</span></div>`);
         if (n.children) n.children.forEach((c) => walk(c, d + 1));
       } else {
-        lines.push(`<div class="tr-line"><span class="tr-indent">${indent}</span><span class="tr-file" data-path="${App.esc(n.path)}">[FILE] ${App.esc(n.name)}</span></div>`);
+        lines.push(`<div class="tr-line ${n.path === this.previewPathname ? 'active' : ''}"><span class="tr-indent">${indent}</span><span class="tr-file" data-path="${App.esc(n.path)}">[FILE] ${App.esc(n.name)}</span></div>`);
       }
     };
     walk(node, 0);
@@ -126,29 +134,188 @@ const Projects = {
     });
 
     this.graphChart.on('click', (params) => {
-      if (params.dataType === 'node' && params.data.path && params.data.rel !== '/') {
+      if (params.dataType === 'node' && params.data.category === 2 && params.data.path && params.data.rel !== '/') {
         this.previewPath(params.data.path);
       }
     });
   },
 
   async previewPath(fullPath) {
+    const Preview = window.ProjectCodePreview;
     const box = document.getElementById('filePreview');
-    if (!fullPath) { box.innerHTML = ''; return; }
+    if (!fullPath || !Preview) { this.closeInspector(); return; }
+    const requestId = ++this.previewRequestId;
+    this.previewPathname = fullPath;
+    this.openInspector();
+    this.markActiveFile(fullPath);
+    this.setInspectorHeader(fullPath, '正在读取…');
+    box.innerHTML = `<div class="inspector-empty is-loading"><span class="spinner"></span><b>LOADING FILE</b><span>正在读取文件内容与元数据</span></div>`;
+    document.getElementById('inspectorStatus').textContent = 'READING';
+
     const info = await window.api.fs.pathInfo(fullPath);
-    if (!info.ok || info.isDir) { box.innerHTML = ''; return; }
-    const read = await window.api.fs.readTextFile(fullPath);
-    if (read.ok) {
-      box.textContent = `📄 ${fullPath}\n\n${read.content}${read.truncated ? '\n\n…（内容过长已截断）' : ''}`;
-    } else {
-      box.textContent = `无法预览（${read.error || '二进制或不可读文件'}）`;
+    if (requestId !== this.previewRequestId) return;
+    if (!info.ok || info.isDir) {
+      this.renderInspectorError(fullPath, info.error || '该路径不是可预览文件');
+      return;
     }
+    const read = await window.api.fs.readTextFile(fullPath);
+    if (requestId !== this.previewRequestId) return;
+    const language = Preview.languageForPath(fullPath);
+    const name = Preview.fileName(fullPath);
+    const ext = Preview.extension(fullPath);
+    const modified = info.modified ? new Date(info.modified).toLocaleString('zh-CN', { hour12: false }) : '—';
+    this.setInspectorHeader(fullPath, language);
+    document.getElementById('inspectorFileMark').textContent = (ext || 'TXT').slice(0, 4).toUpperCase();
+    document.getElementById('inspectorLanguage').textContent = language;
+
+    if (read.ok) {
+      const formatted = Preview.formatContent(read.content, language);
+      const lineCount = formatted.split('\n').length;
+      box.innerHTML = Preview.renderCode(formatted, language);
+      box.scrollTop = 0;
+      box.scrollLeft = 0;
+      document.getElementById('inspectorMeta').innerHTML = `
+        <span>${Preview.formatBytes(info.size)}</span><span>UTF-8</span><span>${lineCount} LINES</span><span>${App.esc(modified)}</span>
+        ${read.truncated ? '<b>PREVIEW TRUNCATED</b>' : ''}`;
+      document.getElementById('inspectorStatus').textContent = read.truncated ? '50K PREVIEW' : 'READY';
+    } else {
+      this.renderInspectorError(fullPath, read.error || '二进制或不可读文件', info);
+    }
+  },
+
+  setInspectorHeader(fullPath, secondary) {
+    const Preview = window.ProjectCodePreview;
+    const name = Preview.fileName(fullPath);
+    document.getElementById('inspectorFileName').textContent = name;
+    document.getElementById('inspectorFilePath').textContent = fullPath;
+    document.getElementById('inspectorRailName').textContent = name;
+    document.getElementById('inspectorBreadcrumb').innerHTML = fullPath.split(/[\\/]/).filter(Boolean)
+      .map((part, index, all) => `<span class="${index === all.length - 1 ? 'current' : ''}">${Preview.escapeHtml(part)}</span>`).join('<i>›</i>');
+    document.getElementById('inspectorStatus').textContent = secondary || 'READY';
+  },
+
+  renderInspectorError(fullPath, message, info = null) {
+    const Preview = window.ProjectCodePreview;
+    this.setInspectorHeader(fullPath, 'UNAVAILABLE');
+    document.getElementById('inspectorLanguage').textContent = 'Preview unavailable';
+    document.getElementById('inspectorMeta').innerHTML = `<span>${info ? Preview.formatBytes(info.size) : '—'}</span><span>READ ONLY</span>`;
+    document.getElementById('filePreview').innerHTML = `
+      <div class="inspector-empty is-error"><b>PREVIEW UNAVAILABLE</b><span>${Preview.escapeHtml(message)}</span></div>`;
+  },
+
+  openInspector() {
+    const workspace = document.getElementById('projectWorkspace');
+    workspace.classList.add('inspector-open');
+    workspace.classList.remove('inspector-collapsed');
+    this.applyInspectorPreferences();
+    setTimeout(() => this.graphChart && this.graphChart.resize(), 240);
+  },
+
+  collapseInspector() {
+    const workspace = document.getElementById('projectWorkspace');
+    if (!workspace.classList.contains('inspector-open')) return;
+    workspace.classList.add('inspector-collapsed');
+    setTimeout(() => this.graphChart && this.graphChart.resize(), 240);
+  },
+
+  expandInspector() {
+    const workspace = document.getElementById('projectWorkspace');
+    workspace.classList.add('inspector-open');
+    workspace.classList.remove('inspector-collapsed');
+    setTimeout(() => this.graphChart && this.graphChart.resize(), 240);
+  },
+
+  closeInspector() {
+    this.previewRequestId += 1;
+    this.previewPathname = null;
+    const workspace = document.getElementById('projectWorkspace');
+    if (workspace) workspace.classList.remove('inspector-open', 'inspector-collapsed', 'is-resizing');
+    document.querySelectorAll('#projectTree .tr-line.active').forEach((line) => line.classList.remove('active'));
+    setTimeout(() => this.graphChart && this.graphChart.resize(), 40);
+  },
+
+  markActiveFile(fullPath) {
+    document.querySelectorAll('#projectTree .tr-file').forEach((file) => {
+      file.closest('.tr-line')?.classList.toggle('active', file.dataset.path === fullPath);
+    });
+  },
+
+  setInspectorZoom(delta) {
+    this.inspectorFontSize = Math.max(10, Math.min(20, this.inspectorFontSize + delta));
+    this.applyInspectorPreferences();
+    this.saveInspectorPreferences();
+  },
+
+  toggleInspectorWrap() {
+    this.inspectorWrapped = !this.inspectorWrapped;
+    this.applyInspectorPreferences();
+    this.saveInspectorPreferences();
+  },
+
+  applyInspectorPreferences() {
+    const inspector = document.getElementById('fileInspector');
+    if (!inspector) return;
+    inspector.style.setProperty('--inspector-font-size', `${this.inspectorFontSize}px`);
+    document.getElementById('projectWorkspace').style.setProperty('--inspector-width', `${this.inspectorWidth}px`);
+    document.getElementById('filePreview').classList.toggle('is-wrapped', this.inspectorWrapped);
+    document.getElementById('inspectorWrap').classList.toggle('active', this.inspectorWrapped);
+    document.getElementById('inspectorZoomValue').textContent = `${Math.round((this.inspectorFontSize / 13) * 100)}%`;
+  },
+
+  saveInspectorPreferences() {
+    try {
+      localStorage.setItem('research-workbench.project-inspector', JSON.stringify({
+        width: this.inspectorWidth, fontSize: this.inspectorFontSize, wrapped: this.inspectorWrapped
+      }));
+    } catch (_) { /* localStorage may be unavailable in isolated tests */ }
+  },
+
+  initInspector() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('research-workbench.project-inspector') || '{}');
+      if (Number.isFinite(saved.width)) this.inspectorWidth = Math.max(320, Math.min(760, saved.width));
+      if (Number.isFinite(saved.fontSize)) this.inspectorFontSize = Math.max(10, Math.min(20, saved.fontSize));
+      this.inspectorWrapped = !!saved.wrapped;
+    } catch (_) { /* ignore damaged preferences */ }
+    this.applyInspectorPreferences();
+
+    const resizer = document.getElementById('inspectorResizer');
+    resizer.addEventListener('pointerdown', (event) => {
+      if (document.getElementById('projectWorkspace').classList.contains('inspector-collapsed')) return;
+      event.preventDefault();
+      const workspace = document.getElementById('projectWorkspace');
+      workspace.classList.add('is-resizing');
+      const startX = event.clientX;
+      const startWidth = this.inspectorWidth;
+      const onMove = (moveEvent) => {
+        const max = Math.max(360, Math.min(760, workspace.getBoundingClientRect().width * 0.62));
+        this.inspectorWidth = Math.round(Math.max(320, Math.min(max, startWidth + startX - moveEvent.clientX)));
+        this.applyInspectorPreferences();
+        this.graphChart && this.graphChart.resize();
+      };
+      const onUp = () => {
+        workspace.classList.remove('is-resizing');
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        this.saveInspectorPreferences();
+      };
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+
+    document.getElementById('inspectorCollapse').addEventListener('click', () => this.collapseInspector());
+    document.getElementById('inspectorExpand').addEventListener('click', () => this.expandInspector());
+    document.getElementById('inspectorClose').addEventListener('click', () => this.closeInspector());
+    document.getElementById('inspectorZoomOut').addEventListener('click', () => this.setInspectorZoom(-1));
+    document.getElementById('inspectorZoomIn').addEventListener('click', () => this.setInspectorZoom(1));
+    document.getElementById('inspectorWrap').addEventListener('click', () => this.toggleInspectorWrap());
   }
 };
 
 window.Projects = Projects;
 
 document.addEventListener('DOMContentLoaded', () => {
+  Projects.initInspector();
   document.getElementById('addProjectBtn').addEventListener('click', async () => {
     const folder = await window.api.dialog.pickProjectFolder();
     if (!folder) return;
@@ -187,7 +354,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (dir) {
       const info = await window.api.fs.pathInfo(dir.dataset.path);
-      document.getElementById('filePreview').innerHTML = '';
       if (info.ok) {
         App.toast(`📁 ${dir.dataset.path.split('/').pop()}${info.isDir ? '（文件夹）' : '（文件）'}`);
       }

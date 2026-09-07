@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('api', {
     pickProjectFolder: () => ipcRenderer.invoke('dialog:pickProjectFolder'),
     pickPdf: () => ipcRenderer.invoke('dialog:pickPdf'),
     pickImage: () => ipcRenderer.invoke('dialog:pickImage'),
+    pickAudio: () => ipcRenderer.invoke('dialog:pickAudio'),
+    pickVoiceModelFolder: () => ipcRenderer.invoke('dialog:pickVoiceModelFolder'),
     exportMarkdown: (o) => ipcRenderer.invoke('dialog:exportMarkdown', o),
     exportMarkdowns: (o) => ipcRenderer.invoke('dialog:exportMarkdowns', o)
   },
@@ -71,10 +73,26 @@ contextBridge.exposeInMainWorld('api', {
     isDesktop: () => ipcRenderer.invoke('pet:isDesktop'),
     setEnabled: (b) => ipcRenderer.invoke('pet:setEnabled', b),
     openChat: () => ipcRenderer.invoke('pet:openChat'),
+    openVoice: () => ipcRenderer.invoke('pet:openVoice'),
     closeChat: () => ipcRenderer.invoke('pet:closeChat'),
+    closeVoice: () => ipcRenderer.invoke('pet:closeVoice'),
     getState: () => ipcRenderer.invoke('pet:getState'),
     focusMain: () => ipcRenderer.invoke('pet:focusMain'),
     move: (dx, dy) => ipcRenderer.invoke('pet:move', dx, dy),
     onModeChanged: (cb) => ipcRenderer.on('pet:mode-changed', (e, m) => cb(m))
+  },
+  voice: {
+    permission: () => ipcRenderer.invoke('voice:permission'),
+    runtimeStatus: () => ipcRenderer.invoke('voice:runtimeStatus'),
+    validateLocalModel: (config) => ipcRenderer.invoke('voice:validateLocalModel', config),
+    prepareRuntime: (options) => ipcRenderer.invoke('voice:prepareRuntime', options),
+    transcribe: (audio, provider, options) => ipcRenderer.invoke('voice:transcribe', audio, provider, options),
+    normalize: (transcript, glossary) => ipcRenderer.invoke('voice:normalize', transcript, glossary),
+    enroll: (profile, provider) => ipcRenderer.invoke('voice:enroll', profile, provider),
+    autoConfigureCosy: (options) => ipcRenderer.invoke('voice:autoConfigureCosy', options),
+    synthesize: (text, context, provider, profileId, options = {}) => ipcRenderer.invoke('voice:synthesize', { text, context, provider, profileId, ...options }),
+    stop: () => ipcRenderer.invoke('voice:stop'),
+    test: (provider, profileId) => ipcRenderer.invoke('voice:test', provider, profileId),
+    onRuntimeProgress: (cb) => ipcRenderer.on('voice:runtime-progress', (e, progress) => cb(progress))
   }
 });

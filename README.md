@@ -14,8 +14,8 @@
 
 | 平台 | 下载 | 说明 |
 |---|---|---|
-| 🍎 macOS（Apple Silicon） | `workbench-v1.5.2-mac-arm64.zip` | 解压后直接运行 `科研工作台.app`（⚠️ 见下方 macOS 说明） |
-| 🪟 Windows x64 | `workbench-v1.5.2-win32-x64.zip` | 解压后运行 `科研工作台.exe`（**建议用 7-Zip 解压**，见下方 Windows 说明） |
+| 🍎 macOS（Apple Silicon） | `workbench-v1.6.0-mac-arm64.zip` | 解压后直接运行 `科研工作台.app`（⚠️ 见下方 macOS 说明） |
+| 🪟 Windows x64 | `workbench-v1.6.0-win32-x64.zip` | 解压后运行 `科研工作台.exe`（**建议用 7-Zip 解压**，见下方 Windows 说明） |
 | 🛡️ 完整性校验 | `SHA256SUMS.txt` | 与 zip 同目录，用于核对下载文件的哈希 |
 
 > ⚠️ **macOS**：当前为 ad-hoc 签名（无 Apple 官方公证）。首次打开若提示「无法验证开发者 / 应用已损坏」，请 **右键 → 打开** → 再点「打开」；仍被阻止可在「系统设置 → 隐私与安全性」中选择「仍要打开」。
@@ -41,14 +41,22 @@ cd app
 npm run pack        # 一步完成：electron-packager 组装 → ad-hoc 整包重签 → 严格验证 → 压缩 ZIP → 解压复验
 ```
 
-- 产物：`dist/科研工作台-v1.5.2-mac-arm64.app`（arm64 / Apple Silicon）+ `.zip`（约 113MB）
-- **Windows**：`npm run pack:win` → `dist/科研工作台-v1.5.2-win32-x64.zip`（约 125MB，内含主程序 `科研工作台.exe`；mac 上交叉打包走手动构造流程，含关键文件完整性校验 + 解压复验）
-- **Release 上传**：GitHub 资产名仅支持 ASCII，发布时使用 `workbench-v1.5.2-mac-arm64.zip` / `workbench-v1.5.2-win32-x64.zip`（内容与本地中文名 zip 完全一致）
+- 产物：`dist/科研工作台-v1.6.0-mac-arm64.app`（arm64 / Apple Silicon）+ `.zip`（约 113MB）
+- **Windows**：`npm run pack:win` → `dist/科研工作台-v1.6.0-win32-x64.zip`（约 125MB，内含主程序 `科研工作台.exe`；mac 上交叉打包走手动构造流程，含关键文件完整性校验 + 解压复验）
+- **Release 上传**：GitHub 资产名仅支持 ASCII，发布时使用 `workbench-v1.6.0-mac-arm64.zip` / `workbench-v1.6.0-win32-x64.zip`（内容与本地中文名 zip 完全一致）
 - 已内置自定义应用图标（`build/icon.icns` / `build/icon.ico`，源自品牌 logo）
 - **签名**：`scripts/package.sh` 会对最终 .app 执行 `codesign --force --deep --sign - --timestamp=none`，并 `codesign --verify --deep --strict` 确认 `valid on disk` / `satisfies its Designated Requirement`，压缩后解压再复验一次。避免出现「应用已损坏 / 无法验证开发者」的签名结构错误。
 - **注意**：ad-hoc 签名只适合本机/信任用户验证，无 Apple 官方信任，首次打开仍可能提示「未验证的开发者」（右键 → 打开）。公开发布需 Apple Developer ID 证书 + Hardened Runtime + Notarization 公证后再做 ZIP/DMG。
 
 首次启动后，建议到「设置」页配置 AI 服务（支持 DeepSeek / OpenAI / 通义千问 / 智谱 / Kimi / Ollama 本地，或自定义 OpenAI 兼容端点）。**不配置 AI 也能使用全部功能** —— 文献摘要、任务拆解、报告生成会自动降级为本地模板。
+
+### 塞西语音 Agent（macOS）
+
+- 长按塞西悬浮球 520ms 开始录音，松开后先转写、净化并展示结果；只有用户点击「发送」后才会进入 Agent 历史或触发工具。
+- ASR 默认使用本地 Whisper small Q5；开启回退后，本地失败才会把当次录音发送到配置的 OpenAI 兼容远程 ASR。
+- TTS 默认使用 CosyVoice（也可选自定义远程 TTS）；远程失败后可回退到本地 MLX Qwen3-TTS。
+- 本地 TTS 支持两种接口：「参考音频零样本」与「已微调说话人模型」。训练完成后，先将 PyTorch 权重转换为 MLX 格式，再在设置中选择模型目录、切换推理模式并填写说话人 ID。
+- 模型、声音档案和临时录音位于 Electron `userData/voice-runtime/`，不放入安装包；临时录音会在成功、失败或取消后清理。
 
 ## 功能模块
 

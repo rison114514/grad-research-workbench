@@ -6,7 +6,7 @@
  */
 
 const PetFloat = {
-  mode: 'ball',           // 'ball' | 'chat'
+  mode: 'ball',           // 'ball' | 'chat' | 'voice'
   state: {
     enabled: false,
     config: { avatar: 'xaihi-half', customPath: '', position: 'bottom-right' },
@@ -17,6 +17,9 @@ const PetFloat = {
   },
 
   async init() {
+    let appInfo = null;
+    try { appInfo = await window.api.app.getVersion(); } catch (error) { /* browser/legacy */ }
+    const voiceSupported = !!(appInfo && appInfo.platform === 'darwin');
     // 设置（头像/位置/开关）
     try {
       const s = await window.api.store.getSettings();
@@ -30,18 +33,24 @@ const PetFloat = {
     // 模式初始化
     try {
       const st = await window.api.pet.getState();
-      if (st && st.mode === 'chat') this.setMode('chat');
+      if (st && (st.mode === 'chat' || st.mode === 'voice')) this.setMode(st.mode);
     } catch (e) { /* 忽略 */ }
     // 主进程模式切换通知
     if (window.api.pet.onModeChanged) {
       window.api.pet.onModeChanged((m) => this.setMode(m));
     }
     // 事件：手动拖动 + 点击/拖动区分（替代 -webkit-app-region:drag，透明窗口卡死修复）
-    this.initDrag(document.getElementById('petBall'), { click: () => this.openChat(), dblclick: () => window.api.pet.focusMain() });
+    this.initDrag(document.getElementById('petBall'), {
+      click: () => this.openChat(),
+      dblclick: () => window.api.pet.focusMain(),
+      longpressStart: voiceSupported ? () => window.VoiceController?.startRecording() : null,
+      longpressEnd: voiceSupported ? () => window.VoiceController?.requestStop() : null
+    });
     this.initDrag(document.getElementById('petChatHead'), { click: null, dblclick: null });
     // 聊天态整体也可拖（消息区空白处）：initDrag 内部已对 input/button/.msg 跳过
     this.initDrag(document.getElementById('petChat'), { click: null, dblclick: null });
     document.getElementById('petChatMin').addEventListener('click', () => this.closeChat());
+    this.initDrag(document.getElementById('petVoiceHead'), { click: null, dblclick: null });
     const clearBtn = document.getElementById('petChatClear');
     if (clearBtn) clearBtn.addEventListener('click', () => this.clearHistory());
     document.getElementById('petSend').addEventListener('click', () => this.send());
@@ -51,6 +60,7 @@ const PetFloat = {
     });
     // 进入聊天态时聚焦输入框
     if (this.mode === 'chat') input.focus();
+    if (voiceSupported && window.VoiceController) await window.VoiceController.init();
   },
 
   /* ---------- 宠物会话（与智能助手一致：assistantSessions + assistantMessages 同源存储） ---------- */
@@ -143,23 +153,37 @@ const PetFloat = {
   },
 
   /* 手动拖动：mousedown 记录起点 → 移动超阈值视为拖动（IPC 增量移动窗口）→ 未移动视为点击/双击 */
-  initDrag(el, { click, dblclick }) {
+  initDrag(el, { click, dblclick, longpressStart, longpressEnd }) {
     if (!el) return;
-    let down = false, moved = false, sx = 0, sy = 0, lastUp = 0, clickTimer = null;
+    let down = false, moved = false, longActive = false, sx = 0, sy = 0, lastUp = 0, clickTimer = null, longTimer = null;
     const MOVE_THRESHOLD = 5;
     el.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       // 交互元素（输入框/按钮/消息卡片）不触发拖动，让用户能选文本/点按钮
       if (e.target.closest && e.target.closest('input, textarea, button, .msg, .persona-lead, select')) return;
       down = true; moved = false;
+      longActive = false;
       sx = e.screenX; sy = e.screenY;
+      clearTimeout(longTimer);
+      if (longpressStart) {
+        longTimer = setTimeout(() => {
+          if (!down || moved) return;
+          longActive = true;
+          clearTimeout(clickTimer);
+          longpressStart();
+        }, 520);
+      }
       el.classList.add('dragging');
       e.preventDefault();
     });
     window.addEventListener('mousemove', (e) => {
       if (!down) return;
+      if (longActive) return; // 已进入录音后锁定悬浮球，手部微动不再拖走窗口
       const dx = e.screenX - sx, dy = e.screenY - sy;
-      if (!moved && (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD)) moved = true;
+      if (!moved && (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD)) {
+        moved = true;
+        clearTimeout(longTimer);
+      }
       if (moved) {
         window.api.pet.move(dx, dy);   // 增量移动（主进程 setPosition）
         sx = e.screenX; sy = e.screenY;
@@ -168,7 +192,13 @@ const PetFloat = {
     window.addEventListener('mouseup', () => {
       if (!down) return;
       down = false;
+      clearTimeout(longTimer);
       el.classList.remove('dragging');
+      if (longActive) {
+        longActive = false;
+        if (longpressEnd) longpressEnd();
+        return;
+      }
       if (moved || !click) return;      // 拖动过或无需点击处理
       const now = Date.now();
       if (now - lastUp < 320) {         // 双击
@@ -184,9 +214,10 @@ const PetFloat = {
   },
 
   setMode(mode) {
-    this.mode = mode === 'chat' ? 'chat' : 'ball';
+    this.mode = mode === 'chat' || mode === 'voice' ? mode : 'ball';
     document.getElementById('petBall').classList.toggle('hidden', this.mode !== 'ball');
     document.getElementById('petChat').classList.toggle('hidden', this.mode !== 'chat');
+    document.getElementById('petVoice').classList.toggle('hidden', this.mode !== 'voice');
     if (this.mode === 'chat') {
       const input = document.getElementById('petInput');
       setTimeout(() => input && input.focus(), 120);
@@ -210,9 +241,19 @@ const PetFloat = {
     }
   },
 
+  openVoice() {
+    this.setMode('voice');
+    if (window.api.pet?.openVoice) window.api.pet.openVoice().catch(() => {});
+  },
+
+  closeVoice() {
+    this.setMode('ball');
+    if (window.api.pet?.closeVoice) window.api.pet.closeVoice().catch(() => {});
+  },
+
   async loadAvatar() {
     const cfg = this.state.config;
-    const targets = [document.getElementById('petBallAvatar'), document.getElementById('petChatAvatar')];
+    const targets = [document.getElementById('petBallAvatar'), document.getElementById('petChatAvatar'), document.getElementById('petVoiceAvatar')];
     const apply = (src) => targets.forEach((el) => { if (el) el.src = src; });
     if (cfg.avatar === 'custom' && cfg.customPath && window.api.fs && window.api.fs.readImage) {
       const r = await window.api.fs.readImage(cfg.customPath);
@@ -240,17 +281,25 @@ const PetFloat = {
     const text = input.value.trim();
     if (!text) return;
     input.value = '';
+    return this.sendText(text, false);
+  },
+
+  async sendText(text, voiceOrigin = false, voiceCycle = null) {
+    const value = String(text || '').trim();
+    if (!value) return;
     const petTarget = {
       renderMessage: (role, content) => this.appendMsg(role, content),
       record: (role, content, extra) => this.recordMsg(role, content, extra),
       scroll: () => { const b = document.getElementById('petChatBody'); if (b) b.scrollTop = b.scrollHeight; },
+      emit: voiceOrigin ? (event) => window.VoiceController?.onAgentEvent(event, voiceCycle) : null,
       // 关键：把宠物自己的会话（pet-chat 历史 + 摘要）交给 Agent 上下文系统，与主智能助手行为一致
       getSession: () => ({ sessionId: this.state.sessionId, sessions: this.state.sessions, messages: this.state.messages })
     };
     try {
-      await window.Assistant.send(text, petTarget);
+      await window.Assistant.send(value, petTarget);
     } catch (err) {
       this.appendMsg('ai', `> ⚠️ ${App.esc((err && err.message) || '请求失败')}`);
+      if (voiceOrigin) window.VoiceController?.onAgentEvent({ type: 'error', text: (err && err.message) || '请求失败' }, voiceCycle);
     }
   }
 };

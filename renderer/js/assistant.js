@@ -480,6 +480,12 @@ const Assistant = {
     return AgentDraftMemory.extractDailyTemplateDraft(content) || { kind: 'text' };
   },
 
+  /** 向语音层发送结构化事件；普通聊天目标没有 emit，因此不改变既有行为。 */
+  emit(target, type, text = '', extra = {}) {
+    if (!target || typeof target.emit !== 'function') return;
+    try { target.emit({ type, text: String(text || ''), ...extra }); } catch (error) { /* 语音 UI 不得阻断 Agent */ }
+  },
+
   /** 规划请求被模型路由成 createDailyTemplate 时，只展示并保留草案，不弹执行卡、不写入。 */
   async renderPlanningToolProposal(toolCalls, loading, trace, target) {
     if (!window.AgentDraftMemory || !window.ToolRegistry) return false;
@@ -494,6 +500,7 @@ const Assistant = {
     loading.innerHTML = App.markdown(content);
     this.appendTrace(loading, [...(trace || []), { t: 'info', label: '规划模式保护', detail: '工具参数已转换为草案，未执行写入' }]);
     await target.record('ai', content, meta);
+    this.emit(target, 'chat_text', content);
     target.scroll();
     return true;
   },
@@ -540,13 +547,13 @@ const Assistant = {
       await target.record('ai', reply, extra);
       if (extra && extra.confirmed) await this.markStructuredDraft(draft, 'confirmed');
       else if (reply === '已放弃') await this.markStructuredDraft(draft, 'discarded');
-    }, personaLead(draft.action));
+    }, personaLead(draft.action), target);
     this.appendTrace(loading, [{ t: 'info', label: '读取结构化草案', detail: `${p.name || '每日计划'} · ${items.length} 项` }]);
     return true;
   },
 
   /* ================= 结果渲染（确认卡 / 草案卡 / clarify） ================= */
-  renderResult(loading, result, onExecuted, lead = '') {
+  renderResult(loading, result, onExecuted, lead = '', target = null) {
     const body = chatBody();
     const record = (reply, extra) => { if (onExecuted) onExecuted(reply, extra); };
     const leadHtml = lead ? `<div class="persona-lead">${App.esc(lead)}</div>` : '';
@@ -557,7 +564,7 @@ const Assistant = {
       loading.innerHTML = leadHtml + App.markdown(result.preview)
         + `<div class="chat-confirm"><button class="btn btn-primary btn-sm" data-c="1">${confirmLabel}</button><button class="btn btn-sm" data-c="0">${cancelLabel}</button></div>`;
       const btns = loading.querySelectorAll('[data-c]');
-      btns[0].addEventListener('click', async () => {
+      const confirmHandler = async () => {
         if (loading.dataset.busy) return; // 防重入：避免快速点击触发栈溢出
         loading.dataset.busy = '1';
         loading.querySelector('.chat-confirm').remove();
@@ -566,25 +573,36 @@ const Assistant = {
           const reply = await result.apply() || (isDraft ? '已保存' : '已执行');
           loading.innerHTML = App.markdown(reply);
           record(reply, { kind: 'action_result', action: result.action, confirmed: true });
+          this.emit(target, 'tool_result', reply, { action: result.action, confirmed: true });
         } catch (e) {
           loading.className = 'msg error';
           loading.textContent = (e && e.message) ? e.message : String(e);
           record('执行失败：' + ((e && e.message) || e), { kind: 'action_result', action: result.action, confirmed: false });
+          this.emit(target, 'error', (e && e.message) || String(e), { action: result.action });
         }
         body.scrollTop = body.scrollHeight;
         delete loading.dataset.busy; // 解锁（失败也复位，防止后续无法点击）
-      });
-      btns[1].addEventListener('click', () => {
+      };
+      const cancelHandler = () => {
         loading.textContent = isDraft ? '已放弃草案，未写入任何数据。' : '已取消，未做任何修改。';
         record('已放弃', { kind: 'text' });
+        this.emit(target, 'cancelled', loading.textContent, { action: result.action });
+      };
+      btns[0].addEventListener('click', confirmHandler);
+      btns[1].addEventListener('click', cancelHandler);
+      this.emit(target, 'tool_confirmation', result.preview || '', {
+        action: result.action,
+        confirm: confirmHandler,
+        cancel: cancelHandler
       });
     } else {
       loading.innerHTML = leadHtml + App.markdown(result || '（无返回结果）');
+      this.emit(target, 'chat_text', result || '（无返回结果）');
     }
     body.scrollTop = body.scrollHeight;
   },
 
-  renderClarifyCard(loading, content, missing) {
+  renderClarifyCard(loading, content, missing, target = null) {
     const hint = (missing && missing.length) ? `（缺少：${missing.join('、')}）` : '';
     loading.innerHTML = App.markdown(content + (hint ? `\n\n> 请补充：${hint}` : ''))
       + `<div class="chat-clarify"><input class="input" placeholder="补充信息后回车发送…"><button class="btn btn-primary btn-sm">发送</button></div>`;
@@ -594,11 +612,12 @@ const Assistant = {
       const val = input.value.trim();
       if (!val) return;
       loading.querySelector('.chat-clarify').remove();
-      Assistant.send(val);
+      Assistant.send(val, target);
     };
     btn.addEventListener('click', submit);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     input.focus();
+    this.emit(target, 'clarify', content, { missing: missing || [] });
   },
 
   /* ================= 意图分发（S3：mode） ================= */
@@ -611,18 +630,19 @@ const Assistant = {
         loading.innerHTML = App.markdown(content);
         this.appendTrace(loading, trace || []);
         await target.record('ai', content, this.messageMetadata(content));
+        this.emit(target, 'chat_text', content);
         break;
       }
       case 'clarify': {
         const content = intent.content || '需要补充一点信息：';
-        this.renderClarifyCard(loading, content, intent.missing || []);
+        this.renderClarifyCard(loading, content, intent.missing || [], target);
         this.appendTrace(loading, trace || []);
         await target.record('ai', content, { kind: 'text', action: 'clarify', params: { missing: intent.missing || [] } });
         break;
       }
       case 'proposal': {
         const card = await window.AssistantActions.buildDraftCard(intent.action, intent.params || {}, intent.assumptions || [], intent.content || '');
-        this.renderResult(loading, card, (reply, extra) => target.record('ai', reply, extra), personaLead(intent.action));
+        this.renderResult(loading, card, (reply, extra) => target.record('ai', reply, extra), personaLead(intent.action), target);
         this.appendTrace(loading, trace || []);
         await target.record('ai', card.preview, { kind: 'draft', action: intent.action, params: intent.params, draft: true, confirmed: false });
         break;
@@ -630,7 +650,7 @@ const Assistant = {
       case 'action': {
         if (intent.action && window.AssistantActions && AssistantActions.canExecute(intent.action)) {
           const card = AssistantActions.buildActionCard(intent.action, intent.params || {}, intent.assumptions || []);
-          this.renderResult(loading, card, (reply, extra) => target.record('ai', reply, extra), personaLead(intent.action));
+          this.renderResult(loading, card, (reply, extra) => target.record('ai', reply, extra), personaLead(intent.action), target);
           this.appendTrace(loading, trace || []);
           await target.record('ai', card.preview, { kind: 'draft', action: intent.action, params: intent.params, draft: true, confirmed: false });
         } else {
@@ -639,6 +659,7 @@ const Assistant = {
           loading.innerHTML = App.markdown(txt);
           this.appendTrace(loading, trace || []);
           await target.record('ai', txt, { kind: 'text' });
+          this.emit(target, 'error', txt);
         }
         break;
       }
@@ -646,6 +667,7 @@ const Assistant = {
         loading.innerHTML = App.markdown(rawContent || '');
         this.appendTrace(loading, trace || []);
         await target.record('ai', rawContent || '', this.messageMetadata(rawContent || ''));
+        this.emit(target, 'chat_text', rawContent || '');
     }
   },
 
@@ -662,7 +684,10 @@ const Assistant = {
 
   async send(text, target = null, system = TOOLS_SYSTEM_PROMPT) {
     if (!text.trim()) return;
-    if (this._isSending) return; // 防重入：避免快速连击/快速重入导致栈溢出
+    if (this._isSending) {
+      this.emit(target, 'error', 'Agent 正在处理上一项请求，请稍后重试。');
+      return;
+    } // 防重入：避免快速连击/快速重入导致栈溢出
     this._isSending = true;
     let loading = null;
     let scope = null;
@@ -718,6 +743,7 @@ const Assistant = {
               loading.innerHTML = App.markdown(greeting);
               this.appendTrace(loading, [...trace, { t: 'info', label: '阻止无关写入', detail: '当前输入仅为问候，已忽略历史草案触发的写工具' }]);
               await target.record('ai', greeting, { kind: 'text' });
+              this.emit(target, 'chat_text', greeting);
               return;
             }
             r.toolCalls.forEach((tc) => trace.push({ t: 'tool', label: `选择工具 ${tc.name}`, detail: JSON.stringify(tc.arguments || {}).slice(0, 200) }));
@@ -731,6 +757,7 @@ const Assistant = {
             loading.innerHTML = App.markdown(emptyMessage);
             this.appendTrace(loading, trace);
             await target.record('ai', emptyMessage, { kind: 'text' });
+            this.emit(target, 'error', emptyMessage);
             return;
           }
           // 兜底：模型未走原生 tool_calls，但可能输出 JSON 意图文本（不支持 tools 的模型）→ 转确认卡/草案卡
@@ -743,6 +770,7 @@ const Assistant = {
           loading.innerHTML = App.markdown(r.content || '（无内容）');
           this.appendTrace(loading, trace);
           await target.record('ai', r.content || '', this.messageMetadata(r.content || ''));
+          this.emit(target, 'chat_text', r.content || '');
           return;
         }
         // 接口失败 → 降级快速路径（正则动作表），保证可用性
@@ -751,6 +779,7 @@ const Assistant = {
         loading.className = 'msg error';
         loading.textContent = r.error || '请求失败';
         await target.record('ai', r.error || '请求失败', { kind: 'text' });
+        this.emit(target, 'error', r.error || '请求失败');
         return;
       }
 
@@ -769,10 +798,12 @@ const Assistant = {
       if (r.ok) {
         loading.innerHTML = App.markdown(r.content);
         await target.record('ai', r.content, this.messageMetadata(r.content));
+        this.emit(target, 'chat_text', r.content);
       } else {
         loading.className = 'msg error';
         loading.textContent = r.error || '请求失败';
         await target.record('ai', r.error || '请求失败', { kind: 'text' });
+        this.emit(target, 'error', r.error || '请求失败');
       }
     } catch (err) {
       console.error('[assistant] send error:', err);
@@ -783,6 +814,7 @@ const Assistant = {
       App.toast(`操作失败：${(err && err.message) ? err.message : '未知错误'}`, 'error');
       if (target && typeof target.record === 'function') {
         await target.record('ai', `执行出错：${(err && err.message) || err}`, { kind: 'text' });
+        this.emit(target, 'error', (err && err.message) || String(err));
       }
     } finally { this._isSending = false; } // 任何路径都解锁（含异常）
     if (target && typeof target.scroll === 'function') target.scroll();
@@ -831,7 +863,7 @@ const Assistant = {
         const card = await AssistantActions.buildActionCard(name, v.params || {});
         const div = target.renderMessage('ai', '处理中…');
         div.innerHTML = `<span class="spinner"></span>`;
-        this.renderResult(div, card, (reply, extra) => target.record('ai', reply, extra), personaLead(name));
+        this.renderResult(div, card, (reply, extra) => target.record('ai', reply, extra), personaLead(name), target);
         this.appendTrace(div, trace || []);
         await target.record('ai', card.preview, { kind: 'draft', action: name, params: v.params, draft: true, confirmed: false });
         pendingWrites.set(hash, { div, card });
@@ -871,6 +903,7 @@ const Assistant = {
         loading.innerHTML = App.markdown(r.content || '（无内容）');
         this.appendTrace(loading, trace || []);
         await target.record('ai', r.content || '', this.messageMetadata(r.content || ''));
+        this.emit(target, 'chat_text', r.content || '');
         target.scroll();
         return;
       }
@@ -879,6 +912,7 @@ const Assistant = {
         loading.innerHTML = App.markdown(`${personaLead(firstToolName)}\n\n${textParts.join('\n\n')}\n\n> ⚠️ 模型后续响应失败，以上为工具执行结果。`);
         this.appendTrace(loading, trace || []);
         await target.record('ai', textParts.join('\n\n'), { kind: 'action_result' });
+        this.emit(target, 'tool_result', textParts.join('\n\n'));
       }
       target.scroll();
       return;
@@ -888,6 +922,7 @@ const Assistant = {
       loading.innerHTML = App.markdown(`${personaLead(firstToolName)}\n\n${textParts.join('\n\n')}`);
       this.appendTrace(loading, trace || []);
       await target.record('ai', textParts.join('\n\n'), { kind: 'action_result' });
+      this.emit(target, 'tool_result', textParts.join('\n\n'));
     } else if (hasCard && loading.isConnected) {
       loading.remove(); // 全为写操作确认卡：移除占位
     }
@@ -913,14 +948,14 @@ const Assistant = {
     const onExecuted = (reply, extra) => target.record('ai', reply, extra);
     if (action === 'planFitnessPlan') {
       const card = AssistantActions.planFitnessPlan(text);
-      this.renderResult(loading, card, onExecuted, personaLead('addFitnessPlan'));
+      this.renderResult(loading, card, onExecuted, personaLead('addFitnessPlan'), target);
       await target.record('ai', card.preview, { kind: 'draft', action: 'addFitnessPlan', params: card.params, draft: true, confirmed: false });
       return true;
     }
     if (action) {
       loading.innerHTML = `<span class="spinner"></span>执行中…`;
       const result = await AssistantActions[action](text);
-      this.renderResult(loading, result, onExecuted, personaLead(action));
+      this.renderResult(loading, result, onExecuted, personaLead(action), target);
       return true;
     }
     return false;

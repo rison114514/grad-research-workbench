@@ -1,10 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, session } = require('electron');
 const path = require('path');
 const { registerIpc } = require('./ipc');
 const petWindow = require('./pet-window');
 const { recoverMainWindow, quitAfterMainClosed } = require('./app-lifecycle');
+const voice = require('./voice-service');
 
 let mainWindow = null;
 let isQuitting = false;
@@ -62,8 +63,31 @@ function createWindow() {
   return mainWindow;
 }
 
+/** 仅工作台自己的 file:// 页面可请求麦克风；摄像头、屏幕及外部页面一律拒绝。 */
+function installMediaPermissionPolicy() {
+  const allowedContents = (contents) => {
+    if (!contents || contents.isDestroyed()) return false;
+    try {
+      const url = new URL(contents.getURL());
+      return url.protocol === 'file:' && url.pathname.includes('/renderer/');
+    } catch (error) { return false; }
+  };
+  session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => {
+    if (permission !== 'media' || !allowedContents(contents)) return false;
+    const mediaType = String(details?.mediaType || '').toLowerCase();
+    return mediaType === 'audio';
+  });
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const types = Array.isArray(details?.mediaTypes) ? details.mediaTypes : [];
+    const microphoneOnly = types.length > 0 && types.every((type) => type === 'audio');
+    callback(permission === 'media' && microphoneOnly && allowedContents(contents));
+  });
+}
+
 if (gotLock) {
   app.whenReady().then(() => {
+    installMediaPermissionPolicy();
+    voice.cleanupTempFiles({ all: true });
     registerIpc();
     createWindow();
     // 若设置开启桌面宠物 → 恢复系统级悬浮球（独立于主窗口）
@@ -80,6 +104,7 @@ if (gotLock) {
   });
 
   app.on('window-all-closed', () => {
+    voice.stop({ shutdown: true });
     petWindow.destroyPetWindow();
     if (process.platform !== 'darwin') app.quit();
   });
@@ -87,6 +112,7 @@ if (gotLock) {
   // 覆盖 Cmd+Q、系统退出、更新退出等不经过 mainWindow.closed 的路径。
   app.on('before-quit', () => {
     isQuitting = true;
+    voice.stop({ shutdown: true });
     petWindow.destroyPetWindow();
   });
 }
